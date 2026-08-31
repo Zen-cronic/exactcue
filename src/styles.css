@@ -1,0 +1,93 @@
+:root {
+  --bg: #0f1117;
+  --panel: #171a23;
+  --panel-2: #1e2230;
+  --ink: #e8eaf0;
+  --muted: #9aa3b2;
+  --line: #2a2f3d;
+  --accent: #5b8cff;
+  --accent-ink: #ffffff;
+  --ok: #1f6f4a;
+  --ok-bg: #12241b;
+  --warn: #6b5320;
+  --warn-bg: #241d10;
+  --radius: 12px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.page { max-width: 960px; margin: 0 auto; padding: 28px 20px 48px; }
+
+.masthead { margin-bottom: 18px; }
+.brand { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+.brand .rx { color: var(--accent); }
+.tagline { color: var(--muted); max-width: 52ch; margin: 6px 0 0; }
+
+.banner {
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin: 0 0 20px;
+  border: 1px solid var(--line);
+}
+.banner-ok { background: var(--ok-bg); border-color: var(--ok); }
+.banner-warn { background: var(--warn-bg); border-color: var(--warn); }
+.banner code, .agentpane code { background: #0a0c12; padding: 1px 5px; border-radius: 5px; }
+
+.layout { display: grid; grid-template-columns: 1fr 320px; gap: 20px; align-items: start; }
+@media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
+
+.flow, .agentpane {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+
+.stepper { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0 0 18px; flex-wrap: wrap; }
+.step { font-size: 12px; color: var(--muted); padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; }
+.step-current { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+
+fieldset { border: none; padding: 0; margin: 0; }
+legend { font-size: 17px; font-weight: 600; margin-bottom: 12px; padding: 0; }
+
+.row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; background: var(--panel-2); cursor: pointer; }
+.row input { margin-top: 3px; }
+
+.segmented { display: flex; gap: 8px; margin-bottom: 12px; }
+.seg { flex: 1; padding: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); border-radius: 10px; cursor: pointer; }
+.seg-on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+.hint { color: var(--muted); font-size: 13px; }
+.hint-block { color: #e0b055; }
+
+.nav { display: flex; justify-content: space-between; margin-top: 18px; }
+button { font: inherit; padding: 9px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); cursor: pointer; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+
+.summary { background: #0a0c12; border: 1px solid var(--line); border-radius: 10px; padding: 12px; white-space: pre-wrap; font-size: 13px; }
+.done h2 { margin-top: 0; }
+
+.agentpane h2 { font-size: 16px; margin: 0 0 4px; }
+.agentpane-sub { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
+.toollist { list-style: none; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; gap: 8px; }
+.toollist li { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.toollist code { color: var(--accent); font-weight: 600; }
+.tooldesc { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+
+.narration { border-top: 1px solid var(--line); padding-top: 12px; }
+.narration h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; }
+.narration pre { white-space: pre-wrap; font-size: 12.5px; margin: 0; color: var(--ink); }
+
+.muted { color: var(--muted); }
+.selected-count { font-size: 12px; margin-top: 10px; }
+
+.foot { color: var(--muted); font-size: 12px; margin-top: 26px; text-align: center; }

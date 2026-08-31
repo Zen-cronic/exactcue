@@ -1,0 +1,21 @@
+# Netlify build + required WebMCP headers.
+# WebMCP needs an origin-isolated context and the `tools` permission policy.
+# https://developer.chrome.com/docs/ai/webmcp
+
+[build]
+  command = "pnpm build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Origin-Agent-Cluster = "?1"
+    Permissions-Policy = "tools=(self)"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Content-Type-Options = "nosniff"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
