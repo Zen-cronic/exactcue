@@ -60,6 +60,8 @@ legend { font-size: 17px; font-weight: 600; margin-bottom: 12px; padding: 0; }
 
 .row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; background: var(--panel-2); cursor: pointer; }
 .row input { margin-top: 3px; }
+.row-disabled { opacity: 0.6; cursor: not-allowed; }
+.needsauth { color: #e0b055; font-style: normal; font-size: 12px; }
 
 .segmented { display: flex; gap: 8px; margin-bottom: 12px; }
 .seg { flex: 1; padding: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); border-radius: 10px; cursor: pointer; }

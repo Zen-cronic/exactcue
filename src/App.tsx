@@ -1,13 +1,13 @@
 import { useSyncExternalStore } from "react";
 import {
   advance,
-  availableSlots,
   describeStep,
+  eligibilityBlock,
   goBack,
+  isEligible,
   orderSummary,
   selectedPrescriptions,
-  setFulfillment,
-  setInsurance,
+  setPharmacy,
   setPrescriptionSelected,
   stepBlocker,
   submitOrder,
@@ -19,8 +19,7 @@ import { useWebMcp } from "./webmcp/useWebMcp";
 
 const STEP_LABELS: Record<StepId, string> = {
   prescriptions: "Prescriptions",
-  insurance: "Payment",
-  fulfillment: "Pickup / delivery",
+  pickup: "Pickup",
   review: "Review",
   done: "Done",
 };
@@ -44,8 +43,8 @@ export default function App() {
 
       {supported ? (
         <p className="banner banner-ok" role="status">
-          WebMCP is active on this page. Ask your browser agent to “refill my prescriptions”,
-          or use the controls below — both drive the same order.
+          WebMCP is active on this page. Ask your browser agent to “refill my prescriptions for
+          pickup”, or use the controls below — both drive the same order.
         </p>
       ) : (
         <p className="banner banner-warn" role="status">
@@ -73,77 +72,46 @@ export default function App() {
           {order.step === "prescriptions" && (
             <fieldset>
               <legend>Which prescriptions should we refill?</legend>
-              {order.prescriptions.map((rx) => (
-                <label key={rx.id} className="row">
-                  <input
-                    type="checkbox"
-                    checked={rx.selected}
-                    onChange={(e) => setOrder(setPrescriptionSelected(order, rx.id, e.target.checked))}
-                  />
-                  <span>
-                    <strong>{rx.name}</strong> — {rx.doctor}, {rx.refillsLeft} refills left
-                  </span>
-                </label>
-              ))}
+              {order.prescriptions.map((rx) => {
+                const block = eligibilityBlock(rx);
+                return (
+                  <label
+                    key={rx.id}
+                    className={isEligible(rx) ? "row" : "row row-disabled"}
+                    title={block ?? undefined}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={rx.selected}
+                      disabled={!isEligible(rx)}
+                      onChange={(e) => setOrder(setPrescriptionSelected(order, rx.id, e.target.checked).order)}
+                    />
+                    <span>
+                      <strong>{rx.name}</strong> — {rx.doctor}, {rx.refillsLeft} refills left
+                      {!isEligible(rx) && <em className="needsauth"> · needs prescriber authorization</em>}
+                    </span>
+                  </label>
+                );
+              })}
             </fieldset>
           )}
 
-          {order.step === "insurance" && (
+          {order.step === "pickup" && (
             <fieldset>
-              <legend>How would you like to pay?</legend>
-              {order.insurancePlans.map((plan) => (
-                <label key={plan.id} className="row">
+              <legend>Where should we send it for pickup?</legend>
+              {order.pharmacies.map((p) => (
+                <label key={p.id} className="row">
                   <input
                     type="radio"
-                    name="insurance"
-                    checked={order.chosenInsuranceId === plan.id}
-                    onChange={() => setOrder(setInsurance(order, plan.id))}
+                    name="pharmacy"
+                    checked={order.chosenPharmacyId === p.id}
+                    onChange={() => setOrder(setPharmacy(order, p.id))}
                   />
                   <span>
-                    <strong>{plan.name}</strong> {plan.memberId !== "—" && <>· {plan.memberId}</>}
+                    <strong>{p.name}</strong> · {p.address}
                   </span>
                 </label>
               ))}
-            </fieldset>
-          )}
-
-          {order.step === "fulfillment" && (
-            <fieldset>
-              <legend>Pickup or delivery?</legend>
-              <div className="segmented">
-                <button
-                  type="button"
-                  className={order.fulfillmentMethod === "pickup" ? "seg seg-on" : "seg"}
-                  onClick={() => setOrder(setFulfillment(order, "pickup", null))}
-                >
-                  Pickup
-                </button>
-                <button
-                  type="button"
-                  className={order.fulfillmentMethod === "delivery" ? "seg seg-on" : "seg"}
-                  onClick={() => setOrder(setFulfillment(order, "delivery", null))}
-                >
-                  Delivery
-                </button>
-              </div>
-              {order.fulfillmentMethod && (
-                <div className="slots">
-                  {availableSlots(order).map((slot) => (
-                    <label key={slot} className="row">
-                      <input
-                        type="radio"
-                        name="slot"
-                        checked={order.fulfillmentSlot === slot}
-                        onChange={() => setOrder(setFulfillment(order, order.fulfillmentMethod!, slot))}
-                      />
-                      <span>{slot}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-              {order.fulfillmentMethod === "delivery" && (
-                <p className="hint">Delivering to {order.deliveryAddress}.</p>
-              )}
             </fieldset>
           )}
 
@@ -188,9 +156,7 @@ export default function App() {
             </div>
           )}
 
-          {blocker && order.step !== "done" && (
-            <p className="hint hint-block">{blocker}</p>
-          )}
+          {blocker && order.step !== "done" && <p className="hint hint-block">{blocker}</p>}
         </main>
 
         <aside className="agentpane" aria-label="Agent view">

@@ -3,59 +3,68 @@
 **The web, operated by _your_ agent — for people who can't operate it themselves.**
 
 Handsfree is a WebMCP web app that lets a blind or motor-impaired person complete a real,
-multi-step task — refilling prescriptions, choosing insurance, scheduling a delivery — entirely
-by talking to their own browser agent. The page exposes clean, _semantic_ WebMCP tools, so the
-agent doesn't wrestle with the DOM; it performs the actual steps of the task in the user's own
-session, and the human confirms before anything is submitted.
+multi-step task — refilling prescriptions and choosing a pickup pharmacy — entirely by talking to
+their own browser agent. The page exposes clean, _semantic_ WebMCP tools, so the agent performs
+the actual steps of the task in the user's own session, and **reads the order back for the user to
+confirm out loud before anything is submitted.**
 
-> Meet Marcus. He's blind. Today, refilling three prescriptions means fighting a form built for a
-> mouse. With Handsfree he says, _"refill my cholesterol and blood-pressure meds and have them
-> delivered Thursday"_ — and watches (well, hears) it happen.
+> Meet Marcus. He's blind. Today, refilling his prescriptions means fighting a form built for a
+> mouse. With Handsfree he says, _"refill my cholesterol and blood-pressure meds for pickup at
+> Marmora"_ — hears exactly what's about to happen — and confirms.
 
-## Why this needs WebMCP — and couldn't really exist without it
+## Why WebMCP — the honest version
 
-A screen reader lets a disabled user **read** a page and operate it **one control at a time, by
-hand**. It does not let their intelligent agent **do a whole task for them**. To get an agent to
-actually carry out a multi-step task on a live site, before WebMCP you had exactly two options,
-and both fail here:
+We are **not** claiming a general browser agent _can't_ operate a web page. Computer-use agents
+(ChatGPT's browser, Comet, Copilot in Edge) already drive authenticated sessions through the
+accessibility tree or raw pixels. So why WebMCP?
 
-1. **A public API + credential handoff.** Most apps have no such API, and handing an autonomous
-   agent blanket credentials to act on your account is exactly the risk you don't want.
-2. **Screen-scraping the DOM.** Brittle, unsafe, and it breaks the moment the layout changes.
+**Because for someone who can't see the screen, "probably clicked the right thing" is not good
+enough.** A DOM/pixel agent _infers_ what a control does and can silently mis-click — and the user
+can't visually catch it. WebMCP changes the guarantee:
 
-**WebMCP is the missing piece:** the page itself publishes structured, semantic tools
-(`document.modelContext.registerTool`) that the user's _own_ agent invokes **inside the user's
-authenticated session**, on the very page a sighted person would see. Handsfree adds one property
-on top: **the available tools are scoped to the current step of the task.** On the
-_prescriptions_ step the agent can `set_prescription`; on _review_ it can `submit_refill`. The
-page — not the agent, not a static tool manifest — decides what is possible right now, and the
-one committing action (`submit_refill`) is only ever taken after the human confirms the read-back.
+- The page publishes **named, typed tools with descriptions** (`document.modelContext.registerTool`),
+  so the agent invokes a **known action** — `submit_refill` — not a guessed-at button.
+- The tools are **scoped to the current step** (via `AbortController`): on the _prescriptions_
+  step the agent can `set_prescription`; only on _review_ can it `submit_refill`. The page keeps
+  the agent on-rails.
+- The committing action is reached only after a **spoken read-back the human confirms**, and the
+  authoritative commit runs **server-side with an ETag compare-and-swap** — so if the record
+  changed underneath (a refill already processed, a dose updated), the submit **fails closed**
+  with an actionable message instead of doing the wrong thing quietly.
 
-So the thing people and agents can do together that was hard-to-impossible before: **a person who
-cannot comfortably operate a page can now delegate the _whole task_ to their agent, safely, on the
-real page, with the page keeping the agent on-rails and the human in the loop.**
+That reliability-and-consent floor — _the page promises the exact action, and a non-sighted user
+confirms it before it commits_ — is what a scrape-the-DOM agent can't guarantee, and it's exactly
+what this user needs. **That's the load-bearing role of WebMCP here.**
+
+## Scope note (read this before calling it a mock)
+
+WebMCP requires the _page_ to expose the tools, so this demo runs on our own pharmacy app. That's
+the point, not a dodge: the WebMCP layer is a **thin adapter — a few dozen lines** any site adds
+over the app it already has (`src/webmcp/handsfreeTools.ts` is that layer here). We deliberately
+built **one deep, real flow** — real state, server-authorized submit, a real stale-record
+fail-closed on camera — rather than a wide set of shallow fakes.
 
 ## How it maps to the judging rubric
 
-- **WebMCP Leverage** — real `document.modelContext` tools that are the _only_ control plane for
-  the agent; the tool set changes with task state (via `AbortController`), which is visible live
-  in the app and in the Model Context Tool Inspector.
-- **Execution** — a complete, coherent product: a normal, fully usable human UI, plus empty /
-  unsupported-browser / error / success states, plus the same task exposed to the agent.
+- **WebMCP Leverage** — real `document.modelContext` tools are the _only_ control plane for the
+  agent; the tool set changes with task state, visible live in the app and the Model Context Tool
+  Inspector; the server-side ETag CAS is genuine, not simulated.
+- **Execution** — a complete, coherent product: a fully usable human UI, plus empty /
+  unsupported-browser / ineligible-prescription / stale-record / success states.
 - **Potential Impact** — a named, specific audience (blind and motor-impaired users) and a real,
-  common friction (multi-step transactional forms) — coordination only, no medical advice.
+  common friction (multi-step transactional forms). Coordination only, no medical advice.
 - **Creativity & Ambition** — accessibility as an **agent cockpit**, not an accessibility _audit_
   tool; the inverse of the crowded "confirmation-gated governance" pattern.
 
 ## How WebMCP is implemented
 
 - `src/webmcp/modelContext.ts` — typings + helpers for the experimental imperative API.
-- `src/domain/refill.ts` — the pure, tested state machine (steps, selection, validation, submit).
+- `src/domain/refill.ts` — the pure, tested state machine (steps, eligibility, validation, submit).
 - `src/store.ts` — one shared order that both the React UI and the tool handlers read/mutate, so
-  the page and the agent are always looking at the same live state.
-- `src/webmcp/handsfreeTools.ts` — the tool surface. Always-on tools (`describe_current_step`,
-  `go_to_next_step`, `go_back`) orient and move; step-scoped tools (`set_prescription`,
-  `set_insurance`, `set_fulfillment`, `review_order`, `submit_refill`) register and unregister as
+  the page and the agent always look at the same live state.
+- `src/webmcp/handsfreeTools.ts` — **the ~40-line WebMCP adapter.** Always-on tools
+  (`describe_current_step`, `go_to_next_step`, `go_back`) orient and move; step-scoped tools
+  (`set_prescription`, `set_pharmacy`, `review_order`, `submit_refill`) register and unregister as
   the flow advances.
 - `src/App.tsx` — the human UI and a live panel mirroring `getTools()` so you can watch the tool
   set change per step.

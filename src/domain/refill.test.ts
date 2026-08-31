@@ -2,17 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   advance,
   canAdvance,
+  eligibilityBlock,
   initialOrder,
+  isEligible,
   orderSummary,
   selectedPrescriptions,
-  setFulfillment,
-  setInsurance,
+  setPharmacy,
   setPrescriptionSelected,
   stepBlocker,
   submitOrder,
 } from "./refill";
 
-describe("refill flow", () => {
+describe("refill flow (collapsed: prescriptions -> pickup -> review -> done)", () => {
   it("cannot advance the first step with nothing selected", () => {
     const order = initialOrder();
     expect(stepBlocker(order)).toMatch(/No prescriptions/);
@@ -20,43 +21,40 @@ describe("refill flow", () => {
   });
 
   it("selects a prescription by loose name fragment", () => {
-    const order = setPrescriptionSelected(initialOrder(), "atorvastatin", true);
+    const { order } = setPrescriptionSelected(initialOrder(), "atorvastatin", true);
     expect(selectedPrescriptions(order)).toHaveLength(1);
     expect(canAdvance(order)).toBe(true);
   });
 
-  it("walks the whole flow to a confirmation number", () => {
+  it("refuses to add a prescription with no refills left, with a reason", () => {
+    const metformin = initialOrder().prescriptions.find((r) => r.name.includes("Metformin"))!;
+    expect(isEligible(metformin)).toBe(false);
+    expect(eligibilityBlock(metformin)).toMatch(/prescriber authorization/);
+    const { order, note } = setPrescriptionSelected(initialOrder(), "metformin", true);
+    expect(selectedPrescriptions(order)).toHaveLength(0);
+    expect(note).toMatch(/prescriber authorization/);
+  });
+
+  it("walks the whole flow to a confirmation number and bumps the version", () => {
     let order = initialOrder();
-    order = setPrescriptionSelected(order, "atorvastatin", true);
-    order = setPrescriptionSelected(order, "lisinopril", true);
-    order = advance(order); // -> insurance
-    expect(order.step).toBe("insurance");
-    order = setInsurance(order, "BlueShield");
-    order = advance(order); // -> fulfillment
-    expect(order.step).toBe("fulfillment");
-    order = setFulfillment(order, "delivery", "Thursday");
-    expect(order.fulfillmentSlot).toBe("Thursday 4–6 PM");
+    order = setPrescriptionSelected(order, "atorvastatin", true).order;
+    order = setPrescriptionSelected(order, "lisinopril", true).order;
+    order = advance(order); // -> pickup
+    expect(order.step).toBe("pickup");
+    expect(stepBlocker(order)).toMatch(/pickup pharmacy/);
+    order = setPharmacy(order, "Marmora");
     order = advance(order); // -> review
     expect(order.step).toBe("review");
+    const before = order.version;
     order = submitOrder(order);
     expect(order.step).toBe("done");
+    expect(order.version).toBe(before + 1);
     expect(order.confirmationNumber).toBeTruthy();
     expect(orderSummary(order)).toMatch(/Confirmation/);
   });
 
-  it("will not advance fulfillment without a slot", () => {
-    let order = initialOrder();
-    order = setPrescriptionSelected(order, "metformin", true);
-    order = advance(order);
-    order = setInsurance(order, "out of pocket");
-    order = advance(order);
-    order = setFulfillment(order, "pickup", null); // no slot
-    expect(stepBlocker(order)).toMatch(/time slot/);
-    expect(canAdvance(order)).toBe(false);
-  });
-
   it("does not submit before the review step", () => {
-    const order = setPrescriptionSelected(initialOrder(), "atorvastatin", true);
+    const { order } = setPrescriptionSelected(initialOrder(), "atorvastatin", true);
     expect(submitOrder(order).step).not.toBe("done");
   });
 });

@@ -1,22 +1,20 @@
 // The WebMCP tool surface for Handsfree — the accessible control plane.
 //
 // Where a screen reader only lets a user READ and manually operate the DOM, these
-// tools let the user's own browser agent DO the multi-step task in their session.
+// tools let the user's own browser agent DO the multi-step refill in their session.
 // The available tools are scoped to the current step (via AbortController), so the
-// agent is guided through exactly the actions that make sense right now.
+// agent is guided to exactly the actions that make sense right now, and the one
+// committing action (submit_refill) is reached only after a spoken read-back.
 
 import {
   advance,
-  availableSlots,
   describeStep,
   goBack,
   orderSummary,
-  setFulfillment,
-  setInsurance,
+  setPharmacy,
   setPrescriptionSelected,
   stepBlocker,
   submitOrder,
-  type FulfillmentMethod,
   type RefillOrder,
   type StepId,
 } from "../domain/refill";
@@ -32,13 +30,12 @@ function bool(params: Record<string, unknown>, key: string, fallback = true): bo
   return typeof v === "boolean" ? v : fallback;
 }
 
-// Available in every step: orient the agent and move through the flow.
 const alwaysTools: ToolDefinition[] = [
   {
     name: "describe_current_step",
     description:
       "Describe where the user is in the refill and what choices are available right now. " +
-      "Call this first, and after any change, to narrate progress to the user. Read-only.",
+      "Call this first, and after any change, to narrate progress. Read-only.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true },
     execute: () => describeStep(getOrder()),
@@ -74,7 +71,8 @@ const prescriptionTools: ToolDefinition[] = [
     name: "set_prescription",
     description:
       "Select or unselect a prescription to refill, by name or id (e.g. 'atorvastatin' or " +
-      "'blood pressure'). Set selected=false to remove one.",
+      "'blood pressure'). Set selected=false to remove one. A prescription with no refills left " +
+      "cannot be added and the tool will say why.",
     inputSchema: {
       type: "object",
       properties: {
@@ -85,61 +83,34 @@ const prescriptionTools: ToolDefinition[] = [
       additionalProperties: false,
     },
     execute: (params) => {
-      const before = getOrder();
-      const next = setPrescriptionSelected(before, str(params, "prescription"), bool(params, "selected"));
-      if (next === before) return `No prescription matched "${str(params, "prescription")}".`;
-      setOrder(next);
-      const chosen = next.prescriptions.filter((rx) => rx.selected).map((rx) => rx.name);
-      return `Updated. Currently selected: ${chosen.join(", ") || "none"}.`;
+      const { order, note } = setPrescriptionSelected(
+        getOrder(),
+        str(params, "prescription"),
+        bool(params, "selected"),
+      );
+      setOrder(order);
+      return note;
     },
   },
 ];
 
-const insuranceTools: ToolDefinition[] = [
+const pickupTools: ToolDefinition[] = [
   {
-    name: "set_insurance",
-    description: "Choose how to pay, by plan name or id (e.g. 'BlueShield' or 'out of pocket').",
+    name: "set_pharmacy",
+    description: "Choose the pickup pharmacy by name or id (e.g. 'Marmora' or 'Riverside').",
     inputSchema: {
       type: "object",
-      properties: { plan: { type: "string", description: "Name fragment or id of the plan." } },
-      required: ["plan"],
+      properties: { pharmacy: { type: "string", description: "Name fragment or id of the pharmacy." } },
+      required: ["pharmacy"],
       additionalProperties: false,
     },
     execute: (params) => {
       const before = getOrder();
-      const next = setInsurance(before, str(params, "plan"));
-      if (next === before) return `No insurance option matched "${str(params, "plan")}".`;
+      const next = setPharmacy(before, str(params, "pharmacy"));
+      if (next === before) return `No pharmacy matched "${str(params, "pharmacy")}".`;
       setOrder(next);
-      const plan = next.insurancePlans.find((p) => p.id === next.chosenInsuranceId);
-      return `Insurance set to ${plan?.name}.`;
-    },
-  },
-];
-
-const fulfillmentTools: ToolDefinition[] = [
-  {
-    name: "set_fulfillment",
-    description:
-      "Choose pickup or delivery and a time slot. Pass method='delivery' or 'pickup' and an " +
-      "optional slot fragment (e.g. 'Thursday'). Call describe_current_step to hear the slots.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        method: { type: "string", enum: ["pickup", "delivery"] },
-        slot: { type: "string", description: "Time-slot fragment, e.g. 'Thursday' or 'tomorrow morning'." },
-      },
-      required: ["method"],
-      additionalProperties: false,
-    },
-    execute: (params) => {
-      const method = str(params, "method") as FulfillmentMethod;
-      if (method !== "pickup" && method !== "delivery") return "method must be 'pickup' or 'delivery'.";
-      const next = setFulfillment(getOrder(), method, str(params, "slot") || null);
-      setOrder(next);
-      if (!next.fulfillmentSlot) {
-        return `Set to ${method}, but no matching slot. Available: ${availableSlots(next).join(", ")}.`;
-      }
-      return `Set to ${method}, ${next.fulfillmentSlot}.`;
+      const p = next.pharmacies.find((x) => x.id === next.chosenPharmacyId);
+      return `Pickup set to ${p?.name}, ${p?.address}.`;
     },
   },
 ];
@@ -155,12 +126,12 @@ const reviewTools: ToolDefinition[] = [
   {
     name: "submit_refill",
     description:
-      "Submit the refill order. Only call this after the user has confirmed the read-back. " +
-      "Returns the confirmation number.",
+      "Submit the refill. Only call this after the user has heard the read-back from review_order " +
+      "and confirmed out loud. Returns the confirmation number.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     execute: () => {
       const next = submitOrder(getOrder());
-      if (next.step !== "done") return "Cannot submit yet — review the order and ensure a prescription is selected.";
+      if (next.step !== "done") return "Cannot submit yet — review the order and ensure a prescription and pharmacy are chosen.";
       setOrder(next);
       return `Refill submitted. Confirmation ${next.confirmationNumber}. ${orderSummary(next)}`;
     },
@@ -169,8 +140,7 @@ const reviewTools: ToolDefinition[] = [
 
 const stepTools: Record<StepId, ToolDefinition[]> = {
   prescriptions: prescriptionTools,
-  insurance: insuranceTools,
-  fulfillment: fulfillmentTools,
+  pickup: pickupTools,
   review: reviewTools,
   done: [],
 };
