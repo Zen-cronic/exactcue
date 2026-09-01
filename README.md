@@ -72,6 +72,8 @@ fail-closed on camera — rather than a wide set of shallow fakes.
 - `src/server/netlifyBlobOrderRepository.ts` — strong Blob reads plus the production
   `onlyIfMatch` conditional write. A stale or replayed token returns the current record and never
   commits the proposal.
+- `src/api/demoSession.ts` — bounded, path-safe synthetic run IDs. The run ID is visible in the
+  URL and proof bar; it is not a credential or an authorization boundary.
 - `netlify/functions/order.ts` — web-standard `GET /api/order` and `POST /api/order` Function.
 - `src/App.tsx` — the human UI and a live panel mirroring `getTools()` so you can watch the tool
   set change per step.
@@ -84,7 +86,7 @@ pnpm dev        # http://localhost:5820 (headers + labeled local proof server)
 pnpm test       # domain, CAS, replay, and HTTP contract tests
 pnpm build      # typecheck + production build to dist/
 pnpm preview    # built artifact + labeled local proof server on :5820
-pnpm smoke:ui   # two-session stale-write proof in headless Chrome
+pnpm smoke:ui   # WebMCP-executed refill + stale-write/recovery proof
 pnpm scan:secrets
 ```
 
@@ -100,6 +102,9 @@ usable manual mode and says so.
 22.12+. On Netlify the Function opens the site-wide `handsfree-orders` Blob store. First read
 creates the synthetic aggregate with `onlyIfNew`; submit performs a strong read followed by
 `setJSON(..., { onlyIfMatch: etag })`. A losing writer receives HTTP 409 with the current record.
+Each browser run receives a validated `demo-<uuid>` session in the URL and an isolated key under
+`sessions/<session>/marcus-refill`, so a judge can start a fresh synthetic demo without deleting a
+prior receipt. Malformed/path-like IDs are rejected before storage is opened.
 
 Local Vite dev/preview serves the **same HTTP handler and service logic** over an in-memory adapter,
 visibly labeled `LOCAL PROOF SERVER`. That makes offline tests and deterministic conflict rehearsal
