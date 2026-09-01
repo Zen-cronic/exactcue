@@ -14,11 +14,18 @@ import {
   setPharmacy,
   setPrescriptionSelected,
   stepBlocker,
-  submitOrder,
   type RefillOrder,
   type StepId,
 } from "../domain/refill";
-import { getOrder, setOrder } from "../store";
+import {
+  actionBlocker,
+  getOrder,
+  hasCurrentReview,
+  markReviewed,
+  recoverFromConflict,
+  setOrder,
+  submitCurrentOrder,
+} from "../store";
 import { getModelContext, type ToolDefinition } from "./modelContext";
 
 function str(params: Record<string, unknown>, key: string, fallback = ""): string {
@@ -38,7 +45,20 @@ const alwaysTools: ToolDefinition[] = [
       "Call this first, and after any change, to narrate progress. Read-only.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true },
-    execute: () => describeStep(getOrder()),
+    execute: () => {
+      const blocked = actionBlocker();
+      return blocked ? `Authoritative record status: ${blocked}` : describeStep(getOrder());
+    },
+  },
+  {
+    name: "reload_current_record",
+    description:
+      "After a stale-record rejection, replace this session's review with the current authoritative record. Read the updated order back before asking the user to confirm again.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    execute: () => {
+      recoverFromConflict();
+      return `Current record loaded. ${describeStep(getOrder())}`;
+    },
   },
   {
     name: "go_to_next_step",
@@ -47,6 +67,8 @@ const alwaysTools: ToolDefinition[] = [
       "incomplete (for example, nothing selected yet).",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     execute: () => {
+      const unavailable = actionBlocker();
+      if (unavailable) return `Cannot continue: ${unavailable}`;
       const blocker = stepBlocker(getOrder());
       if (blocker) return `Cannot continue yet: ${blocker}`;
       const next = advance(getOrder());
@@ -59,6 +81,8 @@ const alwaysTools: ToolDefinition[] = [
     description: "Return to the previous step to change an earlier choice.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     execute: () => {
+      const unavailable = actionBlocker();
+      if (unavailable) return `Cannot go back: ${unavailable}`;
       const next = goBack(getOrder());
       setOrder(next);
       return `Back on step "${next.step}". ${describeStep(next)}`;
@@ -83,6 +107,8 @@ const prescriptionTools: ToolDefinition[] = [
       additionalProperties: false,
     },
     execute: (params) => {
+      const unavailable = actionBlocker();
+      if (unavailable) return `Cannot change prescriptions: ${unavailable}`;
       const { order, note } = setPrescriptionSelected(
         getOrder(),
         str(params, "prescription"),
@@ -105,6 +131,8 @@ const pickupTools: ToolDefinition[] = [
       additionalProperties: false,
     },
     execute: (params) => {
+      const unavailable = actionBlocker();
+      if (unavailable) return `Cannot change pickup: ${unavailable}`;
       const before = getOrder();
       const next = setPharmacy(before, str(params, "pharmacy"));
       if (next === before) return `No pharmacy matched "${str(params, "pharmacy")}".`;
@@ -121,7 +149,12 @@ const reviewTools: ToolDefinition[] = [
     description: "Read back the full order for the user to confirm before submitting. Read-only.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true },
-    execute: () => orderSummary(getOrder()),
+    execute: () => {
+      const unavailable = actionBlocker();
+      if (unavailable) return `Cannot review yet: ${unavailable}`;
+      markReviewed();
+      return `${orderSummary(getOrder())}\nAsk the user to confirm this exact current order before calling submit_refill.`;
+    },
   },
   {
     name: "submit_refill",
@@ -129,11 +162,15 @@ const reviewTools: ToolDefinition[] = [
       "Submit the refill. Only call this after the user has heard the read-back from review_order " +
       "and confirmed out loud. Returns the confirmation number.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    execute: () => {
-      const next = submitOrder(getOrder());
-      if (next.step !== "done") return "Cannot submit yet — review the order and ensure a prescription and pharmacy are chosen.";
-      setOrder(next);
-      return `Refill submitted. Confirmation ${next.confirmationNumber}. ${orderSummary(next)}`;
+    execute: async () => {
+      const unavailable = actionBlocker();
+      if (unavailable) return `Cannot submit: ${unavailable}`;
+      if (!hasCurrentReview()) {
+        return "Cannot submit yet. Call review_order, read the exact current order to the user, and wait for their confirmation.";
+      }
+      const result = await submitCurrentOrder();
+      if (result.kind === "submitted") return `${result.message} ${orderSummary(getOrder())}`;
+      return `${result.message} No write was made by this session.`;
     },
   },
 ];

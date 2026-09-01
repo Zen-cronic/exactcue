@@ -10,7 +10,9 @@
     "moduleDetection": "force",
     "noEmit": true,
     "strict": true,
-    "types": ["node"]
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["vitest/globals"]
   },
-  "include": ["vite.config.ts"]
+  "include": ["netlify/functions", "src/api", "src/domain", "src/server"]
 }
