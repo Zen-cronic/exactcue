@@ -12,16 +12,35 @@ async function waitUntilReady(page) {
   await page.waitForFunction(() => document.querySelector(".proofbar")?.textContent?.includes("ready"));
 }
 
-async function stageReview(page) {
+async function waitForTool(page, name) {
+  await page.waitForFunction(async (toolName) => {
+    const tools = await document.modelContext?.getTools();
+    return tools?.some((tool) => tool.name === toolName);
+  }, {}, name);
+}
+
+async function executeTool(page, name, args = {}) {
+  await waitForTool(page, name);
+  return page.evaluate(async ({ toolName, input }) => {
+    const modelContext = document.modelContext;
+    if (!modelContext) throw new Error("WebMCP is not available in the proof browser.");
+    const tool = (await modelContext.getTools()).find((candidate) => candidate.name === toolName);
+    if (!tool) throw new Error(`WebMCP tool not found: ${toolName}`);
+    return modelContext.executeTool(tool, JSON.stringify(input));
+  }, { toolName: name, input: args });
+}
+
+async function driveAgentToReview(page) {
   await waitUntilReady(page);
-  const eligible = await page.$$("input[type=checkbox]:not(:disabled)");
-  if (eligible.length < 2) throw new Error("Expected two eligible prescriptions.");
-  await eligible[0].click();
-  await eligible[1].click();
-  await page.click(".nav .primary");
-  await page.waitForSelector('input[type="radio"]');
-  await page.click('input[type="radio"]');
-  await page.click(".nav .primary");
+  await executeTool(page, "set_prescription", { prescription: "atorvastatin", selected: true });
+  await executeTool(page, "set_prescription", { prescription: "lisinopril", selected: true });
+  await executeTool(page, "go_to_next_step");
+  await executeTool(page, "set_pharmacy", { pharmacy: "Marmora" });
+  await executeTool(page, "go_to_next_step");
+  const readBack = await executeTool(page, "review_order");
+  if (!readBack.includes("Atorvastatin") || !readBack.includes("Marmora")) {
+    throw new Error(`Agent read-back was incomplete: ${readBack}`);
+  }
   await page.waitForSelector(".submit");
 }
 
@@ -51,11 +70,8 @@ try {
   stalePage.on("pageerror", (error) => process.stderr.write(`Browser error: ${error.message}\n`));
   await stalePage.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
   await stalePage.goto(baseURL, { waitUntil: "domcontentloaded" });
-  await stageReview(stalePage);
-  await stalePage.waitForFunction(async () => {
-    const tools = await document.modelContext?.getTools();
-    return tools?.some((tool) => tool.name === "submit_refill");
-  });
+  await driveAgentToReview(stalePage);
+  await waitForTool(stalePage, "submit_refill");
   const webMcp = await stalePage.evaluate(async () => {
     const modelContext = document.modelContext;
     if (!modelContext) return { supported: false, tools: [] };
@@ -68,10 +84,13 @@ try {
     }
   }
   await stalePage.screenshot({ path: `${outputDirectory}/review.png`, fullPage: true });
-  process.stdout.write("Browser review staged on the current ETag.\n");
+  process.stdout.write("WebMCP agent staged and read back the current review.\n");
 
-  const current = await fetch(`${baseURL}/api/order`).then((response) => response.json());
-  const competingResponse = await fetch(`${baseURL}/api/order`, {
+  const sessionId = new URL(stalePage.url()).searchParams.get("session");
+  if (!sessionId) throw new Error("The app did not create a shareable synthetic session URL.");
+  const orderURL = `${baseURL}/api/order?session=${encodeURIComponent(sessionId)}`;
+  const current = await fetch(orderURL).then((response) => response.json());
+  const competingResponse = await fetch(orderURL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -87,7 +106,10 @@ try {
   }
   process.stdout.write("Competing session committed against the shared proof server.\n");
 
-  await stalePage.click(".submit");
+  const staleResult = await executeTool(stalePage, "submit_refill");
+  if (!staleResult.includes("stale") || !staleResult.includes("No write")) {
+    throw new Error(`Agent did not receive the stale no-write result: ${staleResult}`);
+  }
   await stalePage.waitForSelector(".conflict");
   const conflictText = await stalePage.$eval(".conflict", (element) => element.textContent ?? "");
   if (!conflictText.includes("FAIL-CLOSED") || !conflictText.includes("Nothing was submitted")) {
@@ -96,7 +118,7 @@ try {
   await stalePage.screenshot({ path: `${outputDirectory}/stale-conflict.png`, fullPage: true });
   process.stdout.write("Second session failed closed as stale.\n");
 
-  await stalePage.click(".conflict button");
+  await executeTool(stalePage, "reload_current_record");
   await stalePage.waitForSelector(".done");
   const recoveredText = await stalePage.$eval(".flow", (element) => element.textContent ?? "");
   if (!recoveredText.includes("Current record loaded")) {
@@ -105,13 +127,30 @@ try {
   await stalePage.screenshot({ path: `${outputDirectory}/recovered.png`, fullPage: true });
   process.stdout.write("Stale session recovered to the current record.\n");
 
+  await stalePage.click(".done button");
+  await stalePage.waitForFunction(
+    (previousSession) => new URL(window.location.href).searchParams.get("session") !== previousSession,
+    {},
+    sessionId,
+  );
+  await waitUntilReady(stalePage);
+  const freshSessionId = new URL(stalePage.url()).searchParams.get("session");
+  const freshText = await stalePage.$eval(".flow", (element) => element.textContent ?? "");
+  if (!freshSessionId || !freshText.includes("Which prescriptions should we refill?")) {
+    throw new Error("Fresh synthetic demo did not open an isolated initial record.");
+  }
+  await stalePage.screenshot({ path: `${outputDirectory}/fresh-session.png`, fullPage: true });
+  process.stdout.write("Fresh synthetic session opened without deleting the prior receipt.\n");
+
   process.stdout.write(
     `${JSON.stringify({
       status: "passed",
       baseURL,
-      proof: "browser review + competing session: matching submit → stale 409 → current-record recovery",
+      sessionId,
+      freshSessionId,
+      proof: "WebMCP-executed refill → competing commit → agent stale 409 → WebMCP recovery",
       webMcp,
-      screenshots: ["review.png", "stale-conflict.png", "recovered.png"],
+      screenshots: ["review.png", "stale-conflict.png", "recovered.png", "fresh-session.png"],
     }, null, 2)}\n`,
   );
 } finally {
