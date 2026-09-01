@@ -5,6 +5,7 @@ import { initialOrder } from "../domain/refill";
 import { createOrderHandler, createSessionOrderHandler } from "./orderHttp";
 import { InMemoryOrderRepository } from "./orderRepository";
 import { submitOrderIntent } from "./orderService";
+import { createRequestLogEntry } from "./requestTelemetry";
 
 function intent(etag: string, version = 1): SubmitOrderRequest {
   return {
@@ -94,6 +95,11 @@ describe("order HTTP handler", () => {
 
     expect(getResponse.status).toBe(200);
     expect(getResponse.headers.get("cache-control")).toBe("no-store");
+    expect(getResponse.headers.get("x-handsfree-request-id")).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(getResponse.headers.get("x-handsfree-storage")).toBe("local-memory");
+    expect(getResponse.headers.get("server-timing")).toMatch(/^app;dur=\d+\.\d$/);
     expect(view.storage).toBe("local-memory");
 
     await repository.replaceFromAnotherSession({ ...view.order, version: 2 });
@@ -123,6 +129,24 @@ describe("order HTTP handler", () => {
     expect(invalid.status).toBe(400);
     expect((await invalid.json()).message).toMatch(/Nothing was submitted/);
     expect(unsupported.status).toBe(405);
+  });
+
+  it("builds metadata-only request logs with no URL or domain payload", async () => {
+    const request = new Request(
+      "https://handsfree.test/api/order?session=demo-private123&patient=Marcus",
+      { method: "POST" },
+    );
+    const response = await createOrderHandler(new InMemoryOrderRepository(), "local-memory")(
+      new Request("https://handsfree.test/api/order"),
+    );
+    const entry = createRequestLogEntry(request, response, 12.7);
+    const serialized = JSON.stringify(entry);
+
+    expect(Object.keys(entry).sort()).toEqual(
+      ["durationMs", "event", "method", "requestId", "status", "storage"].sort(),
+    );
+    expect(entry.durationMs).toBe(13);
+    expect(serialized).not.toMatch(/Marcus|demo-private|etag|prescription|patient/i);
   });
 });
 
