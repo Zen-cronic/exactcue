@@ -1,15 +1,14 @@
-# Handsfree
+# ExactCue
 
-**The web, operated by _your_ agent — for people who can't operate it themselves.**
+**Current-state-bound actions for browser agents. The exact action. Your cue.**
 
-Handsfree is a WebMCP web app that lets a blind or motor-impaired person complete a real,
-multi-step task — refilling prescriptions and choosing a pickup pharmacy — entirely by talking to
-their own browser agent. The page exposes clean, _semantic_ WebMCP tools, so the agent performs
-the actual steps of the task in the user's own session, and **reads the order back for the user to
-confirm out loud before anything is submitted.**
+ExactCue is a WebMCP reference implementation for a consequential browser-agent boundary: the
+page exposes the actions valid _right now_, binds read-back to the exact current proposal, and
+commits only while the authoritative record still matches. A synthetic prescription refill is the
+proof case, not the product category.
 
-> Meet Marcus. He's blind. Today, refilling his prescriptions means fighting a form built for a
-> mouse. With Handsfree he says, _"refill my cholesterol and blood-pressure meds for pickup at
+> Meet Marcus, the synthetic demo user. He's blind. Today, refilling his prescriptions means
+> fighting a form built for a mouse. With ExactCue he says, _"refill my cholesterol and blood-pressure meds for pickup at
 > Marmora"_ — hears exactly what's about to happen — and confirms.
 
 ## Why WebMCP — the honest version
@@ -33,9 +32,11 @@ can't visually catch it. WebMCP changes the guarantee:
   changed underneath (a refill already processed, a dose updated), the submit **fails closed**
   with an actionable message instead of doing the wrong thing quietly.
 
-That reliability-and-consent floor — _the page promises the exact action, and a non-sighted user
-confirms it before it commits_ — is what a scrape-the-DOM agent can't guarantee, and it's exactly
-what this user needs. **That's the load-bearing role of WebMCP here.**
+That reliability floor — _the page declares the exact action, binds the read-back to the current
+proposal, and refuses a stale commit_ — is what a scrape-the-DOM agent cannot obtain from control
+labels alone. Human confirmation remains the browser agent's responsibility; ExactCue proves
+payload binding and freshness rather than pretending it can infer spoken assent. **That is the
+load-bearing role of WebMCP here.**
 
 ## Scope note (read this before calling it a mock)
 
@@ -52,8 +53,9 @@ fail-closed on camera — rather than a wide set of shallow fakes.
   Inspector; the server-side ETag CAS is genuine, not simulated.
 - **Execution** — a complete, coherent product: a fully usable human UI, plus empty /
   unsupported-browser / ineligible-prescription / stale-record / success states.
-- **Potential Impact** — a named, specific audience (blind and motor-impaired users) and a real,
-  common friction (multi-step transactional forms). Coordination only, no medical advice.
+- **Potential Impact** — a specific audience and costly failure mode: a non-sighted user cannot
+  visually catch a wrong or stale transactional action. The demo is synthetic and claims a
+  reusable safety pattern, not clinical deployment or completed user research.
 - **Creativity & Ambition** — accessibility as an **agent cockpit**, not an accessibility _audit_
   tool; the inverse of the crowded "confirmation-gated governance" pattern.
 
@@ -63,11 +65,10 @@ fail-closed on camera — rather than a wide set of shallow fakes.
 - `src/domain/refill.ts` — the pure, tested state machine (steps, eligibility, validation, submit).
 - `src/store.ts` — one shared order that both the React UI and the tool handlers read/mutate, so
   the page and the agent always look at the same uncommitted review state.
-- `src/webmcp/handsfreeTools.ts` — the typed WebMCP adapter. Always-on tools
-  (`describe_current_step`, `reload_current_record`, `go_to_next_step`, `go_back`) orient,
-  recover, and move; step-scoped tools
-  (`set_prescription`, `set_pharmacy`, `review_order`, `submit_refill`) register and unregister as
-  the flow advances.
+- `src/webmcp/handsfreeTools.ts` — the typed WebMCP adapter. Always-on tools describe and recover;
+  navigation and action tools register and retire with the current step. At review,
+  `go_to_next_step` disappears and only the read-back + explicit-confirmation submit path can
+  reach authoritative completion.
 - `src/server/orderService.ts` — validates the proposed refill against the current authoritative
   catalog and makes the ETag/version compare-and-swap decision.
 - `src/server/netlifyBlobOrderRepository.ts` — strong Blob reads plus the production
@@ -111,18 +112,22 @@ Every order response includes `X-Handsfree-Request-Id`, `X-Handsfree-Storage`, a
 receipts. The hosted Function logs only that request ID, method, status, duration, and storage mode;
 it deliberately excludes URL/session IDs, ETags, request/response bodies, and patient/order fields.
 
+Live judge preview: <https://iteration-3-cas--handsfree-webmcp.netlify.app>
+
 Local Vite dev/preview serves the **same HTTP handler and service logic** over an in-memory adapter,
 visibly labeled `LOCAL PROOF SERVER`. That makes offline tests and deterministic conflict rehearsal
-cheap, but it is not presented as hosted Blobs proof. The true provider path must still be verified
-on the Netlify preview before submission.
+cheap, but it is not presented as hosted Blobs proof. The public preview has separately returned
+`X-Handsfree-Storage: netlify-blobs` and passed a real hosted matching commit, stale 409/no-write,
+replay rejection, recovery, session-isolation, and anonymous reachability check.
 
 Current Netlify implementation references: [Blobs conditional writes](https://docs.netlify.com/build/data-and-storage/netlify-blobs/)
 and [web-standard Functions](https://docs.netlify.com/build/functions/get-started/).
 
 ## Scope & safety
 
-Handsfree is a **coordination** tool. It gives no medical advice and makes no clinical judgement.
-All data is synthetic.
+ExactCue is a **coordination/reference** implementation. It gives no medical advice and makes no
+clinical judgement. All people, prescriptions, pharmacies, and records are synthetic. No real
+pharmacy integration or blind/motor-impaired participant study is claimed.
 
 ## License
 
