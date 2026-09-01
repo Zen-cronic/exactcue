@@ -15,6 +15,7 @@
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "smoke:ui": "node scripts/smoke-ui.mjs",
+    "capture:demo": "node scripts/capture-demo.mjs",
     "scan:secrets": "node scripts/scan-secrets.mjs"
   },
   "dependencies": {
