@@ -1,6 +1,9 @@
 node_modules
 dist
 .netlify
+.artifacts
+BUILD_CHECKPOINT.md
+*.tsbuildinfo
 *.local
 .env
 .env.*
