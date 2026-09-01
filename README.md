@@ -39,8 +39,8 @@ what this user needs. **That's the load-bearing role of WebMCP here.**
 ## Scope note (read this before calling it a mock)
 
 WebMCP requires the _page_ to expose the tools, so this demo runs on our own pharmacy app. That's
-the point, not a dodge: the WebMCP layer is a **thin adapter — a few dozen lines** any site adds
-over the app it already has (`src/webmcp/handsfreeTools.ts` is that layer here). We deliberately
+the point, not a dodge: the WebMCP layer is a **small typed adapter** a site adds over the app it
+already has (`src/webmcp/handsfreeTools.ts` is that layer here). We deliberately
 built **one deep, real flow** — real state, server-authorized submit, a real stale-record
 fail-closed on camera — rather than a wide set of shallow fakes.
 
@@ -61,11 +61,18 @@ fail-closed on camera — rather than a wide set of shallow fakes.
 - `src/webmcp/modelContext.ts` — typings + helpers for the experimental imperative API.
 - `src/domain/refill.ts` — the pure, tested state machine (steps, eligibility, validation, submit).
 - `src/store.ts` — one shared order that both the React UI and the tool handlers read/mutate, so
-  the page and the agent always look at the same live state.
-- `src/webmcp/handsfreeTools.ts` — **the ~40-line WebMCP adapter.** Always-on tools
-  (`describe_current_step`, `go_to_next_step`, `go_back`) orient and move; step-scoped tools
+  the page and the agent always look at the same uncommitted review state.
+- `src/webmcp/handsfreeTools.ts` — the typed WebMCP adapter. Always-on tools
+  (`describe_current_step`, `reload_current_record`, `go_to_next_step`, `go_back`) orient,
+  recover, and move; step-scoped tools
   (`set_prescription`, `set_pharmacy`, `review_order`, `submit_refill`) register and unregister as
   the flow advances.
+- `src/server/orderService.ts` — validates the proposed refill against the current authoritative
+  catalog and makes the ETag/version compare-and-swap decision.
+- `src/server/netlifyBlobOrderRepository.ts` — strong Blob reads plus the production
+  `onlyIfMatch` conditional write. A stale or replayed token returns the current record and never
+  commits the proposal.
+- `netlify/functions/order.ts` — web-standard `GET /api/order` and `POST /api/order` Function.
 - `src/App.tsx` — the human UI and a live panel mirroring `getTools()` so you can watch the tool
   set change per step.
 
@@ -73,9 +80,12 @@ fail-closed on camera — rather than a wide set of shallow fakes.
 
 ```bash
 pnpm install
-pnpm dev        # http://localhost:5173  (dev server sends the WebMCP headers)
-pnpm test       # domain state-machine tests
+pnpm dev        # http://localhost:5820 (headers + labeled local proof server)
+pnpm test       # domain, CAS, replay, and HTTP contract tests
 pnpm build      # typecheck + production build to dist/
+pnpm preview    # built artifact + labeled local proof server on :5820
+pnpm smoke:ui   # two-session stale-write proof in headless Chrome
+pnpm scan:secrets
 ```
 
 To see the agent drive it, open the app in **Chrome 149+** with
@@ -86,8 +96,18 @@ usable manual mode and says so.
 ## Deploy (Netlify)
 
 `netlify.toml` sets the required headers (`Origin-Agent-Cluster: ?1`,
-`Permissions-Policy: tools=(self)`) and publishes `dist/`. Netlify Deploy Previews are public, so
-judges can reach the live URL without a login wall.
+`Permissions-Policy: tools=(self)`), publishes `dist/`, and bundles `netlify/functions/` on Node
+22.12+. On Netlify the Function opens the site-wide `handsfree-orders` Blob store. First read
+creates the synthetic aggregate with `onlyIfNew`; submit performs a strong read followed by
+`setJSON(..., { onlyIfMatch: etag })`. A losing writer receives HTTP 409 with the current record.
+
+Local Vite dev/preview serves the **same HTTP handler and service logic** over an in-memory adapter,
+visibly labeled `LOCAL PROOF SERVER`. That makes offline tests and deterministic conflict rehearsal
+cheap, but it is not presented as hosted Blobs proof. The true provider path must still be verified
+on the Netlify preview before submission.
+
+Current Netlify implementation references: [Blobs conditional writes](https://docs.netlify.com/build/data-and-storage/netlify-blobs/)
+and [web-standard Functions](https://docs.netlify.com/build/functions/get-started/).
 
 ## Scope & safety
 
