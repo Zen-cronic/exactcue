@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import process from "node:process";
+import { AxePuppeteer } from "@axe-core/puppeteer";
 import puppeteer from "puppeteer-core";
 
 const baseURL = process.env.APP_URL ?? "http://127.0.0.1:5820";
@@ -10,6 +11,22 @@ const chromePath =
 
 async function waitUntilReady(page) {
   await page.waitForFunction(() => document.querySelector(".proofbar")?.textContent?.includes("ready"));
+}
+
+async function auditAccessibility(page, state) {
+  const results = await new AxePuppeteer(page)
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+    .analyze();
+  if (results.violations.length) {
+    const details = results.violations.map((violation) => ({
+      id: violation.id,
+      impact: violation.impact,
+      help: violation.help,
+      targets: violation.nodes.flatMap((node) => node.target),
+    }));
+    throw new Error(`${state} accessibility violations: ${JSON.stringify(details)}`);
+  }
+  return { state, violations: 0, passes: results.passes.length };
 }
 
 async function waitForTool(page, name) {
@@ -65,11 +82,14 @@ const browser = await puppeteer.launch({
 process.stdout.write("Headless Chrome launched.\n");
 
 try {
+  const accessibility = [];
   const [stalePage] = await browser.pages();
   stalePage.setDefaultTimeout(10_000);
   stalePage.on("pageerror", (error) => process.stderr.write(`Browser error: ${error.message}\n`));
   await stalePage.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
   await stalePage.goto(baseURL, { waitUntil: "domcontentloaded" });
+  await waitUntilReady(stalePage);
+  accessibility.push(await auditAccessibility(stalePage, "initial"));
   await driveAgentToReview(stalePage);
   await waitForTool(stalePage, "submit_refill");
   const webMcp = await stalePage.evaluate(async () => {
@@ -83,6 +103,7 @@ try {
       throw new Error(`Review-step WebMCP tool missing: ${requiredTool}`);
     }
   }
+  accessibility.push(await auditAccessibility(stalePage, "review"));
   await stalePage.screenshot({ path: `${outputDirectory}/review.png`, fullPage: true });
   process.stdout.write("WebMCP agent staged and read back the current review.\n");
 
@@ -115,6 +136,7 @@ try {
   if (!conflictText.includes("FAIL-CLOSED") || !conflictText.includes("Nothing was submitted")) {
     throw new Error(`Conflict proof copy is incomplete: ${conflictText}`);
   }
+  accessibility.push(await auditAccessibility(stalePage, "stale-conflict"));
   await stalePage.screenshot({ path: `${outputDirectory}/stale-conflict.png`, fullPage: true });
   process.stdout.write("Second session failed closed as stale.\n");
 
@@ -124,6 +146,7 @@ try {
   if (!recoveredText.includes("Current record loaded")) {
     throw new Error("The stale session did not visibly recover to the current record.");
   }
+  accessibility.push(await auditAccessibility(stalePage, "recovered"));
   await stalePage.screenshot({ path: `${outputDirectory}/recovered.png`, fullPage: true });
   process.stdout.write("Stale session recovered to the current record.\n");
 
@@ -139,6 +162,7 @@ try {
   if (!freshSessionId || !freshText.includes("Which prescriptions should we refill?")) {
     throw new Error("Fresh synthetic demo did not open an isolated initial record.");
   }
+  accessibility.push(await auditAccessibility(stalePage, "fresh-session"));
   await stalePage.screenshot({ path: `${outputDirectory}/fresh-session.png`, fullPage: true });
   process.stdout.write("Fresh synthetic session opened without deleting the prior receipt.\n");
 
@@ -150,6 +174,7 @@ try {
       freshSessionId,
       proof: "WebMCP-executed refill → competing commit → agent stale 409 → WebMCP recovery",
       webMcp,
+      accessibility,
       screenshots: ["review.png", "stale-conflict.png", "recovered.png", "fresh-session.png"],
     }, null, 2)}\n`,
   );
