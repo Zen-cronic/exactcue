@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { SubmitOrderRequest } from "../api/orderContract";
+import { parseDemoSessionId, type DemoSessionId } from "../api/demoSession";
 import { initialOrder } from "../domain/refill";
-import { createOrderHandler } from "./orderHttp";
+import { createOrderHandler, createSessionOrderHandler } from "./orderHttp";
 import { InMemoryOrderRepository } from "./orderRepository";
 import { submitOrderIntent } from "./orderService";
 
@@ -122,5 +123,61 @@ describe("order HTTP handler", () => {
     expect(invalid.status).toBe(400);
     expect((await invalid.json()).message).toMatch(/Nothing was submitted/);
     expect(unsupported.status).toBe(405);
+  });
+});
+
+describe("synthetic demo sessions", () => {
+  it("accepts only bounded path-safe session identifiers", () => {
+    expect(parseDemoSessionId("demo-12345678")).toBe("demo-12345678");
+    expect(parseDemoSessionId("DEMO-ABCDEF12")).toBe("demo-abcdef12");
+    expect(parseDemoSessionId("../../orders")).toBeNull();
+    expect(parseDemoSessionId("demo-short")).toBeNull();
+    expect(parseDemoSessionId(`demo-${"a".repeat(59)}`)).toBeNull();
+  });
+
+  it("isolates authoritative records between valid sessions", async () => {
+    const repositories = new Map<DemoSessionId, InMemoryOrderRepository>();
+    const handler = createSessionOrderHandler((sessionId) => {
+      const repository = repositories.get(sessionId) ?? new InMemoryOrderRepository();
+      repositories.set(sessionId, repository);
+      return repository;
+    }, "local-memory");
+    const sessionA = "demo-aaaaaaaa";
+    const sessionB = "demo-bbbbbbbb";
+
+    const aBefore = await handler(new Request(`http://handsfree.test/api/order?session=${sessionA}`));
+    const aView = await aBefore.json();
+    const commitA = await handler(
+      new Request(`http://handsfree.test/api/order?session=${sessionA}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(intent(aView.etag)),
+      }),
+    );
+    const bRead = await handler(new Request(`http://handsfree.test/api/order?session=${sessionB}`));
+    const bView = await bRead.json();
+
+    expect(commitA.status).toBe(200);
+    expect((await commitA.json()).current.order.version).toBe(2);
+    expect(bView.order.version).toBe(1);
+    expect(bView.order.step).toBe("prescriptions");
+    expect(repositories.size).toBe(2);
+  });
+
+  it("rejects missing or malformed sessions before creating a repository", async () => {
+    let factoryCalls = 0;
+    const handler = createSessionOrderHandler(() => {
+      factoryCalls += 1;
+      return new InMemoryOrderRepository();
+    }, "local-memory");
+
+    const missing = await handler(new Request("http://handsfree.test/api/order"));
+    const malformed = await handler(
+      new Request("http://handsfree.test/api/order?session=../../private"),
+    );
+
+    expect(missing.status).toBe(400);
+    expect(malformed.status).toBe(400);
+    expect(factoryCalls).toBe(0);
   });
 });

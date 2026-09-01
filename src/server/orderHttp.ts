@@ -1,4 +1,5 @@
 import type { ErrorResponse, StorageMode } from "../api/orderContract";
+import { parseDemoSessionId, type DemoSessionId } from "../api/demoSession";
 import type { OrderRepository } from "./orderRepository";
 import { readOrder, submitOrderIntent } from "./orderService";
 
@@ -41,5 +42,24 @@ export function createOrderHandler(
         503,
       );
     }
+  };
+}
+
+export function createSessionOrderHandler(
+  repositoryFor: (sessionId: DemoSessionId) => OrderRepository,
+  storage: StorageMode,
+): (request: Request) => Promise<Response> {
+  return async (request: Request): Promise<Response> => {
+    const sessionId = parseDemoSessionId(new URL(request.url).searchParams.get("session"));
+    if (!sessionId) {
+      return json(
+        {
+          kind: "invalid",
+          message: "A valid synthetic demo session is required. Nothing was submitted.",
+        },
+        400,
+      );
+    }
+    return createOrderHandler(repositoryFor(sessionId), storage)(request);
   };
 }

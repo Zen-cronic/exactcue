@@ -33,7 +33,7 @@ code, pre { font-family: "SFMono-Regular", Consolas, ui-monospace, monospace; }
 .rx { color: var(--green); font-family: Georgia, serif; }
 .tagline { max-width: 500px; margin: 0; color: #4c574e; font-size: 16px; line-height: 1.5; text-align: right; }
 
-.proofbar { display: grid; grid-template-columns: 1fr auto auto; gap: 22px; align-items: center; background: var(--navy); color: #f7fbf5; border-radius: 12px 12px 0 0; padding: 11px 15px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.proofbar { display: grid; grid-template-columns: 1fr auto auto auto; gap: 22px; align-items: center; background: var(--navy); color: #f7fbf5; border-radius: 12px 12px 0 0; padding: 11px 15px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .proofbar > div { display: flex; align-items: center; gap: 8px; }
 .proofbar span { color: #99ada3; }
 .proofbar strong { color: var(--green-bright); font-size: 11px; }
@@ -119,6 +119,7 @@ legend { font-size: clamp(21px, 3vw, 27px); font-weight: 700; letter-spacing: -.
 .done { text-align: center; padding: 25px 0 5px; }
 .donecheck { width: 50px; height: 50px; display: grid; place-items: center; margin: 0 auto 13px; border-radius: 50%; background: var(--green); color: white; font-size: 25px; }
 .done .summary { text-align: left; margin-top: 20px; }
+.done button { margin-top: 4px; }
 .foot { color: var(--muted); font-size: 11px; margin-top: 20px; text-align: center; text-transform: uppercase; letter-spacing: .08em; }
 
 @media (max-width: 860px) {

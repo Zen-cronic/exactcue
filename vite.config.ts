@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Connect, type Plugin } from "vite";
-import { createOrderHandler } from "./src/server/orderHttp";
+import type { DemoSessionId } from "./src/api/demoSession";
+import { createSessionOrderHandler } from "./src/server/orderHttp";
 import { InMemoryOrderRepository } from "./src/server/orderRepository";
 
 function requestBody(request: IncomingMessage): Promise<string | undefined> {
@@ -22,7 +23,14 @@ async function writeResponse(response: Response, target: ServerResponse): Promis
 
 /** Runs the exact Function service over memory for local dev and built-artifact proof. */
 function localOrderApi(): Plugin {
-  const handler = createOrderHandler(new InMemoryOrderRepository(), "local-memory");
+  const repositories = new Map<DemoSessionId, InMemoryOrderRepository>();
+  const handler = createSessionOrderHandler((sessionId) => {
+    const existing = repositories.get(sessionId);
+    if (existing) return existing;
+    const created = new InMemoryOrderRepository();
+    repositories.set(sessionId, created);
+    return created;
+  }, "local-memory");
   const middleware: Connect.NextHandleFunction = async (request, response, next) => {
     if (!request.url?.startsWith("/api/order")) return next();
     try {

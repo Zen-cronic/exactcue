@@ -4,8 +4,11 @@ import {
   type SubmitOrderRequest,
   type SubmitOrderResponse,
 } from "./orderContract";
+import type { DemoSessionId } from "./demoSession";
 
-const ORDER_ENDPOINT = "/api/order";
+export function orderEndpoint(sessionId: DemoSessionId): string {
+  return `/api/order?session=${encodeURIComponent(sessionId)}`;
+}
 
 async function responseJson(response: Response): Promise<unknown> {
   try {
@@ -15,8 +18,8 @@ async function responseJson(response: Response): Promise<unknown> {
   }
 }
 
-export async function fetchAuthoritativeOrder(): Promise<OrderView> {
-  const response = await fetch(ORDER_ENDPOINT, {
+export async function fetchAuthoritativeOrder(sessionId: DemoSessionId): Promise<OrderView> {
+  const response = await fetch(orderEndpoint(sessionId), {
     headers: { Accept: "application/json" },
     cache: "no-store",
   });
@@ -27,8 +30,11 @@ export async function fetchAuthoritativeOrder(): Promise<OrderView> {
   return body;
 }
 
-export async function submitAuthoritativeOrder(request: SubmitOrderRequest): Promise<SubmitOrderResponse> {
-  const response = await fetch(ORDER_ENDPOINT, {
+export async function submitAuthoritativeOrder(
+  sessionId: DemoSessionId,
+  request: SubmitOrderRequest,
+): Promise<SubmitOrderResponse> {
+  const response = await fetch(orderEndpoint(sessionId), {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify(request),

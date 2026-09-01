@@ -18,6 +18,7 @@ import {
   loadAuthoritativeOrder,
   recoverFromConflict,
   setOrder,
+  startFreshDemo,
   submitCurrentOrder,
   subscribe,
 } from "./store";
@@ -66,6 +67,7 @@ export default function App() {
         </div>
         <div><span>record</span> v{order.version}</div>
         <div><span>ETag</span> <code>{etagLabel(session.etag)}</code></div>
+        <div><span>run</span> <code>{session.sessionId.slice(5, 13)}</code></div>
       </section>
 
       {supported ? (
@@ -191,6 +193,7 @@ export default function App() {
               <h2>Refill complete</h2>
               <p>Confirmation <strong>{order.confirmationNumber}</strong></p>
               <pre className="summary">{orderSummary(order)}</pre>
+              <button type="button" onClick={() => void startFreshDemo()}>Start a fresh synthetic demo</button>
             </div>
           )}
 

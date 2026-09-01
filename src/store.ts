@@ -3,11 +3,17 @@
 
 import { fetchAuthoritativeOrder, submitAuthoritativeOrder } from "./api/orderClient";
 import type { OrderView, StorageMode } from "./api/orderContract";
+import {
+  createDemoSessionId,
+  parseDemoSessionId,
+  type DemoSessionId,
+} from "./api/demoSession";
 import { initialOrder, selectedPrescriptions, type RefillOrder } from "./domain/refill";
 
 export type SessionPhase = "loading" | "ready" | "submitting" | "conflict" | "error";
 
 export interface OrderSession {
+  sessionId: DemoSessionId;
   order: RefillOrder;
   etag: string | null;
   storage: StorageMode | null;
@@ -25,7 +31,30 @@ export type SubmitSessionResult =
 
 type Listener = () => void;
 
+const SESSION_STORAGE_KEY = "handsfree-demo-session";
+
+function putSessionInUrl(sessionId: DemoSessionId, mode: "push" | "replace"): void {
+  const url = new URL(window.location.href);
+  url.searchParams.set("session", sessionId);
+  if (mode === "push") window.history.pushState(null, "", url);
+  else window.history.replaceState(null, "", url);
+  window.sessionStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+}
+
+function initialSessionId(): DemoSessionId {
+  const fromUrl = parseDemoSessionId(new URL(window.location.href).searchParams.get("session"));
+  if (fromUrl) {
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, fromUrl);
+    return fromUrl;
+  }
+  const stored = parseDemoSessionId(window.sessionStorage.getItem(SESSION_STORAGE_KEY));
+  const sessionId = stored ?? createDemoSessionId();
+  putSessionInUrl(sessionId, "replace");
+  return sessionId;
+}
+
 let current: OrderSession = {
+  sessionId: initialSessionId(),
   order: initialOrder(),
   etag: null,
   storage: null,
@@ -88,8 +117,9 @@ export function actionBlocker(): string | null {
 export async function loadAuthoritativeOrder(): Promise<void> {
   publish({ ...current, phase: "loading", message: null, conflict: null, reviewed: false });
   try {
-    const view = await fetchAuthoritativeOrder();
+    const view = await fetchAuthoritativeOrder(current.sessionId);
     publish({
+      sessionId: current.sessionId,
       order: view.order,
       etag: view.etag,
       storage: view.storage,
@@ -121,7 +151,7 @@ export async function submitCurrentOrder(): Promise<SubmitSessionResult> {
   const chosenPharmacyId = current.order.chosenPharmacyId;
   publish({ ...current, phase: "submitting", message: "Checking the current record…" });
   try {
-    const result = await submitAuthoritativeOrder({
+    const result = await submitAuthoritativeOrder(submittedSession.sessionId, {
       expectedVersion: submittedSession.order.version,
       expectedEtag,
       selectedPrescriptionIds: selectedPrescriptions(submittedSession.order).map((item) => item.id),
@@ -131,6 +161,7 @@ export async function submitCurrentOrder(): Promise<SubmitSessionResult> {
 
     if (result.kind === "submitted") {
       publish({
+        sessionId: submittedSession.sessionId,
         order: result.current.order,
         etag: result.current.etag,
         storage: result.current.storage,
@@ -164,6 +195,7 @@ export async function submitCurrentOrder(): Promise<SubmitSessionResult> {
 export function recoverFromConflict(): void {
   if (!current.conflict) return;
   publish({
+    sessionId: current.sessionId,
     order: current.conflict.order,
     etag: current.conflict.etag,
     storage: current.conflict.storage,
@@ -172,6 +204,22 @@ export function recoverFromConflict(): void {
     conflict: null,
     reviewed: false,
   });
+}
+
+export async function startFreshDemo(): Promise<void> {
+  const sessionId = createDemoSessionId();
+  putSessionInUrl(sessionId, "push");
+  publish({
+    sessionId,
+    order: initialOrder(),
+    etag: null,
+    storage: null,
+    phase: "loading",
+    message: "Starting a fresh isolated synthetic demo…",
+    conflict: null,
+    reviewed: false,
+  });
+  await loadAuthoritativeOrder();
 }
 
 export function subscribe(listener: Listener): () => void {
