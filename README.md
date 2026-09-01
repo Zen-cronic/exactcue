@@ -27,8 +27,9 @@ can't visually catch it. WebMCP changes the guarantee:
 - The tools are **scoped to the current step** (via `AbortController`): on the _prescriptions_
   step the agent can `set_prescription`; only on _review_ can it `submit_refill`. The page keeps
   the agent on-rails.
-- The committing action is reached only after a **spoken read-back the human confirms**, and the
-  authoritative commit runs **server-side with an ETag compare-and-swap** — so if the record
+- The committing action is reached only after a **spoken read-back plus explicit confirmation
+  attestation** bound to that exact local review, and the authoritative commit runs **server-side
+  with an ETag compare-and-swap** — so if the record
   changed underneath (a refill already processed, a dose updated), the submit **fails closed**
   with an actionable message instead of doing the wrong thing quietly.
 
