@@ -52,11 +52,12 @@ export default function App() {
     <div className="page">
       <header className="masthead">
         <div>
-          <div className="eyebrow">Accessible agent control plane</div>
-          <div className="brand">Handsfree <span className="rx">℞</span></div>
+          <div className="eyebrow">Current-state-bound WebMCP</div>
+          <div className="brand">ExactCue <span className="cue" aria-hidden="true">●</span></div>
         </div>
         <p className="tagline">
-          Marcus hears the exact refill. His agent commits only if the record is still current.
+          <strong>The exact action. Your cue.</strong>
+          <span>Marcus hears the current refill. His agent commits only while it remains current.</span>
         </p>
       </header>
 

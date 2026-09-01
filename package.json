@@ -1,9 +1,9 @@
 {
-  "name": "handsfree",
+  "name": "exactcue",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "The web operated by your own browser agent, for people who can't operate it themselves. Built on WebMCP.",
+  "description": "Current-state-bound actions for browser agents, demonstrated through an accessible refill workflow built on WebMCP.",
   "license": "MIT",
   "engines": {
     "node": ">=22.12.0"

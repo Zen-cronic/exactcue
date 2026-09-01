@@ -1,4 +1,4 @@
-// Handsfree domain: one deep pharmacy prescription-refill flow.
+// ExactCue proof case: one deep pharmacy prescription-refill flow.
 // Pure and framework-free so the UI, the WebMCP tool handlers, and the Netlify
 // Function that owns the authoritative record can all drive the exact same state
 // machine. Coordination only — no medical advice, no clinical judgement.

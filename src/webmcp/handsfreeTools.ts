@@ -1,4 +1,4 @@
-// The WebMCP tool surface for Handsfree — the accessible control plane.
+// The WebMCP tool surface for ExactCue — the accessible control plane.
 //
 // Where a screen reader only lets a user READ and manually operate the DOM, these
 // tools let the user's own browser agent DO the multi-step refill in their session.

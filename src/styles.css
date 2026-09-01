@@ -30,8 +30,9 @@ code, pre { font-family: "SFMono-Regular", Consolas, ui-monospace, monospace; }
 .masthead { display: flex; justify-content: space-between; align-items: flex-end; gap: 32px; padding-bottom: 20px; }
 .eyebrow, .kicker { color: var(--green); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; margin: 0 0 5px; }
 .brand { font-size: clamp(32px, 5vw, 52px); line-height: .95; font-weight: 700; letter-spacing: -.055em; }
-.rx { color: var(--green); font-family: Georgia, serif; }
-.tagline { max-width: 500px; margin: 0; color: #4c574e; font-size: 16px; line-height: 1.5; text-align: right; }
+.cue { color: var(--green); font-size: .35em; vertical-align: .6em; letter-spacing: 0; }
+.tagline { max-width: 500px; margin: 0; color: #4c574e; font-size: 15px; line-height: 1.45; text-align: right; display: flex; flex-direction: column; gap: 2px; }
+.tagline strong { color: var(--ink); font-size: 18px; }
 
 .proofbar { display: grid; grid-template-columns: 1fr auto auto auto; gap: 22px; align-items: center; background: var(--navy); color: #f7fbf5; border-radius: 12px 12px 0 0; padding: 11px 15px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .proofbar > div { display: flex; align-items: center; gap: 8px; }

@@ -4,7 +4,7 @@ import { createToolController } from "./handsfreeTools";
 import type { StepId } from "../domain/refill";
 
 /**
- * Wires the Handsfree tool surface to the browser's WebMCP runtime and exposes the
+ * Wires the ExactCue tool surface to the browser's WebMCP runtime and exposes the
  * live list of currently-registered tools, so the UI can mirror what the agent's
  * inspector sees and prove the tool set changes with each step.
  */
