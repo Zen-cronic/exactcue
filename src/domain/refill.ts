@@ -111,20 +111,19 @@ export function stepBlocker(order: RefillOrder): string | null {
     case "pickup":
       return order.chosenPharmacyId === null ? "No pickup pharmacy chosen yet." : null;
     case "review":
-      return null;
+      return "The order is ready for read-back. Use review_order, then submit_refill after the user confirms.";
     case "done":
-      return null;
+      return "This refill is already complete.";
   }
 }
 
 export function canAdvance(order: RefillOrder): boolean {
-  return order.step !== "done" && stepBlocker(order) === null;
+  return (order.step === "prescriptions" || order.step === "pickup") && stepBlocker(order) === null;
 }
 
 export function advance(order: RefillOrder): RefillOrder {
   if (!canAdvance(order)) return order;
-  const idx = STEP_ORDER.indexOf(order.step);
-  return { ...order, step: STEP_ORDER[idx + 1] };
+  return { ...order, step: order.step === "prescriptions" ? "pickup" : "review" };
 }
 
 export function goBack(order: RefillOrder): RefillOrder {

@@ -16,6 +16,7 @@ import {
 import {
   getSession,
   loadAuthoritativeOrder,
+  markReadBack,
   recoverFromConflict,
   setOrder,
   startFreshDemo,
@@ -180,13 +181,20 @@ export default function App() {
               <legend>Hear it. Confirm it. Then commit.</legend>
               <p className="fieldhelp">The server will accept this exact review only while v{order.version} and its ETag still match.</p>
               <pre className="summary">{orderSummary(order)}</pre>
-              <button type="button" className="primary submit" onClick={() => void submitCurrentOrder()}>
+              <button
+                type="button"
+                className="primary submit"
+                onClick={() => {
+                  markReadBack();
+                  void submitCurrentOrder(true);
+                }}
+              >
                 {session.phase === "submitting" ? "Checking current record…" : "I confirm — submit refill"}
               </button>
             </fieldset>
           )}
 
-          {order.step === "done" && (
+          {order.step === "done" && order.confirmationNumber && (
             <div className="done" role="status">
               <div className="donecheck" aria-hidden="true">✓</div>
               <p className="kicker">AUTHORITATIVE RECORD v{order.version}</p>
@@ -194,6 +202,15 @@ export default function App() {
               <p>Confirmation <strong>{order.confirmationNumber}</strong></p>
               <pre className="summary">{orderSummary(order)}</pre>
               <button type="button" onClick={() => void startFreshDemo()}>Start a fresh synthetic demo</button>
+            </div>
+          )}
+
+          {order.step === "done" && !order.confirmationNumber && (
+            <div className="service-error" role="alert">
+              <p className="kicker">NOTHING SUBMITTED</p>
+              <h2>Completion receipt missing</h2>
+              <p>The page will not claim success without an authoritative confirmation. Reload the current record.</p>
+              <button type="button" onClick={() => void loadAuthoritativeOrder()}>Reload current record</button>
             </div>
           )}
 
@@ -205,7 +222,7 @@ export default function App() {
               )}
             </div>
           )}
-          {blocker && interactive && order.step !== "done" && <p className="hint hint-block">{blocker}</p>}
+          {blocker && interactive && order.step !== "review" && order.step !== "done" && <p className="hint hint-block">{blocker}</p>}
           {session.message && session.phase === "ready" && <p className="hint" role="status">{session.message}</p>}
         </main>
 

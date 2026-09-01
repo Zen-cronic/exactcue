@@ -20,8 +20,8 @@ import {
 import {
   actionBlocker,
   getOrder,
-  hasCurrentReview,
-  markReviewed,
+  hasCurrentReadBack,
+  markReadBack,
   recoverFromConflict,
   setOrder,
   submitCurrentOrder,
@@ -60,35 +60,37 @@ const alwaysTools: ToolDefinition[] = [
       return `Current record loaded. ${describeStep(getOrder())}`;
     },
   },
-  {
-    name: "go_to_next_step",
-    description:
-      "Advance to the next step of the refill. Fails with the reason if the current step is " +
-      "incomplete (for example, nothing selected yet).",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    execute: () => {
-      const unavailable = actionBlocker();
-      if (unavailable) return `Cannot continue: ${unavailable}`;
-      const blocker = stepBlocker(getOrder());
-      if (blocker) return `Cannot continue yet: ${blocker}`;
-      const next = advance(getOrder());
-      setOrder(next);
-      return `Now on step "${next.step}". ${describeStep(next)}`;
-    },
-  },
-  {
-    name: "go_back",
-    description: "Return to the previous step to change an earlier choice.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    execute: () => {
-      const unavailable = actionBlocker();
-      if (unavailable) return `Cannot go back: ${unavailable}`;
-      const next = goBack(getOrder());
-      setOrder(next);
-      return `Back on step "${next.step}". ${describeStep(next)}`;
-    },
-  },
 ];
+
+const nextTool: ToolDefinition = {
+  name: "go_to_next_step",
+  description:
+    "Advance from prescriptions to pickup, or pickup to review. This tool retires at review; " +
+    "only submit_refill can complete an order.",
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  execute: () => {
+    const unavailable = actionBlocker();
+    if (unavailable) return `Cannot continue: ${unavailable}`;
+    const blocker = stepBlocker(getOrder());
+    if (blocker) return `Cannot continue yet: ${blocker}`;
+    const next = advance(getOrder());
+    setOrder(next);
+    return `Now on step "${next.step}". ${describeStep(next)}`;
+  },
+};
+
+const backTool: ToolDefinition = {
+  name: "go_back",
+  description: "Return to the previous step to change an earlier choice.",
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  execute: () => {
+    const unavailable = actionBlocker();
+    if (unavailable) return `Cannot go back: ${unavailable}`;
+    const next = goBack(getOrder());
+    setOrder(next);
+    return `Back on step "${next.step}". ${describeStep(next)}`;
+  },
+};
 
 const prescriptionTools: ToolDefinition[] = [
   {
@@ -152,23 +154,36 @@ const reviewTools: ToolDefinition[] = [
     execute: () => {
       const unavailable = actionBlocker();
       if (unavailable) return `Cannot review yet: ${unavailable}`;
-      markReviewed();
-      return `${orderSummary(getOrder())}\nAsk the user to confirm this exact current order before calling submit_refill.`;
+      markReadBack();
+      return `${orderSummary(getOrder())}\nAsk the user to confirm this exact current order before calling submit_refill with confirmed set to true.`;
     },
   },
   {
     name: "submit_refill",
     description:
       "Submit the refill. Only call this after the user has heard the read-back from review_order " +
-      "and confirmed out loud. Returns the confirmation number.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    execute: async () => {
+      "and explicitly confirmed it. Set confirmed to true only after that confirmation. Returns the confirmation number.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        confirmed: {
+          type: "boolean",
+          description: "True only after the user explicitly confirms the exact review_order read-back.",
+        },
+      },
+      required: ["confirmed"],
+      additionalProperties: false,
+    },
+    execute: async (params) => {
       const unavailable = actionBlocker();
       if (unavailable) return `Cannot submit: ${unavailable}`;
-      if (!hasCurrentReview()) {
+      if (!bool(params, "confirmed", false)) {
+        return "Cannot submit: explicit user confirmation is required. Nothing was submitted.";
+      }
+      if (!hasCurrentReadBack()) {
         return "Cannot submit yet. Call review_order, read the exact current order to the user, and wait for their confirmation.";
       }
-      const result = await submitCurrentOrder();
+      const result = await submitCurrentOrder(true);
       if (result.kind === "submitted") return `${result.message} ${orderSummary(getOrder())}`;
       return `${result.message} No write was made by this session.`;
     },
@@ -176,9 +191,9 @@ const reviewTools: ToolDefinition[] = [
 ];
 
 const stepTools: Record<StepId, ToolDefinition[]> = {
-  prescriptions: prescriptionTools,
-  pickup: pickupTools,
-  review: reviewTools,
+  prescriptions: [nextTool, ...prescriptionTools],
+  pickup: [backTool, nextTool, ...pickupTools],
+  review: [backTool, ...reviewTools],
   done: [],
 };
 
@@ -205,8 +220,15 @@ export function createToolController() {
     await start();
     if (step === currentStep) return;
     currentStep = step;
-    stepController?.abort();
+    const retiringController = stepController;
     stepController = new AbortController();
+    // A navigation tool can trigger this sync while its own WebMCP invocation is
+    // still resolving. Retire the prior surface on the next task so Chrome can
+    // deliver that tool's response before its AbortSignal unregisters it.
+    if (retiringController) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      retiringController.abort();
+    }
     for (const tool of stepTools[step]) {
       await mc.registerTool(tool, { signal: stepController.signal });
     }

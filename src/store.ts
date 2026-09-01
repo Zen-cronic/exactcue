@@ -12,6 +12,13 @@ import { initialOrder, selectedPrescriptions, type RefillOrder } from "./domain/
 
 export type SessionPhase = "loading" | "ready" | "submitting" | "conflict" | "error";
 
+interface ReviewReceipt {
+  expectedVersion: number;
+  expectedEtag: string;
+  selectedPrescriptionIds: string[];
+  chosenPharmacyId: string;
+}
+
 export interface OrderSession {
   sessionId: DemoSessionId;
   order: RefillOrder;
@@ -20,7 +27,7 @@ export interface OrderSession {
   phase: SessionPhase;
   message: string | null;
   conflict: OrderView | null;
-  reviewed: boolean;
+  reviewReceipt: ReviewReceipt | null;
 }
 
 export type SubmitSessionResult =
@@ -61,7 +68,7 @@ let current: OrderSession = {
   phase: "loading",
   message: null,
   conflict: null,
-  reviewed: false,
+  reviewReceipt: null,
 };
 const listeners = new Set<Listener>();
 
@@ -86,17 +93,43 @@ export function getOrder(): RefillOrder {
 
 export function setOrder(next: RefillOrder): void {
   if (current.phase !== "ready") return;
-  publish({ ...current, order: next, message: null, conflict: null, reviewed: false });
+  publish({ ...current, order: next, message: null, conflict: null, reviewReceipt: null });
 }
 
-export function markReviewed(): void {
-  if (current.phase === "ready" && current.order.step === "review") {
-    publish({ ...current, reviewed: true });
-  }
+export function markReadBack(): void {
+  if (
+    current.phase !== "ready" ||
+    current.order.step !== "review" ||
+    !current.etag ||
+    !current.order.chosenPharmacyId
+  ) return;
+  publish({
+    ...current,
+    reviewReceipt: {
+      expectedVersion: current.order.version,
+      expectedEtag: current.etag,
+      selectedPrescriptionIds: selectedPrescriptions(current.order).map((item) => item.id),
+      chosenPharmacyId: current.order.chosenPharmacyId,
+    },
+  });
 }
 
-export function hasCurrentReview(): boolean {
-  return current.phase === "ready" && current.order.step === "review" && current.reviewed;
+export function hasCurrentReadBack(): boolean {
+  if (
+    current.phase !== "ready" ||
+    current.order.step !== "review" ||
+    !current.etag ||
+    !current.order.chosenPharmacyId ||
+    !current.reviewReceipt
+  ) return false;
+  const selectedIds = selectedPrescriptions(current.order).map((item) => item.id);
+  return (
+    current.reviewReceipt.expectedVersion === current.order.version &&
+    current.reviewReceipt.expectedEtag === current.etag &&
+    current.reviewReceipt.chosenPharmacyId === current.order.chosenPharmacyId &&
+    current.reviewReceipt.selectedPrescriptionIds.length === selectedIds.length &&
+    current.reviewReceipt.selectedPrescriptionIds.every((id, index) => id === selectedIds[index])
+  );
 }
 
 export function actionBlocker(): string | null {
@@ -115,7 +148,7 @@ export function actionBlocker(): string | null {
 }
 
 export async function loadAuthoritativeOrder(): Promise<void> {
-  publish({ ...current, phase: "loading", message: null, conflict: null, reviewed: false });
+  publish({ ...current, phase: "loading", message: null, conflict: null, reviewReceipt: null });
   try {
     const view = await fetchAuthoritativeOrder(current.sessionId);
     publish({
@@ -126,7 +159,7 @@ export async function loadAuthoritativeOrder(): Promise<void> {
       phase: "ready",
       message: "Authoritative record loaded. Agent actions are now enabled.",
       conflict: null,
-      reviewed: false,
+      reviewReceipt: null,
     });
   } catch (error) {
     publish({
@@ -134,29 +167,28 @@ export async function loadAuthoritativeOrder(): Promise<void> {
       phase: "error",
       message: errorMessage(error),
       conflict: null,
-      reviewed: false,
+      reviewReceipt: null,
     });
   }
 }
 
-export async function submitCurrentOrder(): Promise<SubmitSessionResult> {
+export async function submitCurrentOrder(confirmed: boolean): Promise<SubmitSessionResult> {
   const blocker = actionBlocker();
   if (blocker) return { kind: "error", message: blocker };
-  if (!current.etag || !current.order.chosenPharmacyId) {
-    return { kind: "invalid", message: "The review is incomplete. Nothing was submitted." };
+  if (!confirmed) {
+    return { kind: "invalid", message: "Explicit confirmation is required. Nothing was submitted." };
+  }
+  if (!hasCurrentReadBack() || !current.reviewReceipt) {
+    return { kind: "invalid", message: "The exact current order must be read back before confirmation. Nothing was submitted." };
   }
 
   const submittedSession = current;
-  const expectedEtag = current.etag;
-  const chosenPharmacyId = current.order.chosenPharmacyId;
+  const receipt = current.reviewReceipt;
   publish({ ...current, phase: "submitting", message: "Checking the current record…" });
   try {
     const result = await submitAuthoritativeOrder(submittedSession.sessionId, {
-      expectedVersion: submittedSession.order.version,
-      expectedEtag,
-      selectedPrescriptionIds: selectedPrescriptions(submittedSession.order).map((item) => item.id),
-      chosenPharmacyId,
-      confirmed: true,
+      ...receipt,
+      confirmed,
     });
 
     if (result.kind === "submitted") {
@@ -168,7 +200,7 @@ export async function submitCurrentOrder(): Promise<SubmitSessionResult> {
         phase: "ready",
         message: result.message,
         conflict: null,
-        reviewed: false,
+        reviewReceipt: null,
       });
       return { kind: "submitted", message: result.message };
     }
@@ -178,16 +210,16 @@ export async function submitCurrentOrder(): Promise<SubmitSessionResult> {
         phase: "conflict",
         message: result.message,
         conflict: result.current,
-        reviewed: false,
+        reviewReceipt: null,
       });
       return { kind: "conflict", message: result.message };
     }
 
-    publish({ ...submittedSession, phase: "ready", message: result.message, reviewed: false });
+    publish({ ...submittedSession, phase: "ready", message: result.message, reviewReceipt: null });
     return { kind: result.kind, message: result.message };
   } catch (error) {
     const message = errorMessage(error);
-    publish({ ...submittedSession, phase: "error", message, reviewed: false });
+    publish({ ...submittedSession, phase: "error", message, reviewReceipt: null });
     return { kind: "error", message };
   }
 }
@@ -202,7 +234,7 @@ export function recoverFromConflict(): void {
     phase: "ready",
     message: "Current record loaded. Hear the updated read-back before confirming again.",
     conflict: null,
-    reviewed: false,
+    reviewReceipt: null,
   });
 }
 
@@ -217,7 +249,7 @@ export async function startFreshDemo(): Promise<void> {
     phase: "loading",
     message: "Starting a fresh isolated synthetic demo…",
     conflict: null,
-    reviewed: false,
+    reviewReceipt: null,
   });
   await loadAuthoritativeOrder();
 }

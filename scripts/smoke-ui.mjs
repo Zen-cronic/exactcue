@@ -59,6 +59,24 @@ async function driveAgentToReview(page) {
     throw new Error(`Agent read-back was incomplete: ${readBack}`);
   }
   await page.waitForSelector(".submit");
+
+  const reviewToolNames = await page.evaluate(async () =>
+    (await document.modelContext?.getTools())?.map((tool) => tool.name) ?? [],
+  );
+  if (reviewToolNames.includes("go_to_next_step")) {
+    throw new Error("go_to_next_step remained registered at the authoritative review boundary.");
+  }
+  const bypassState = await page.$eval(".flow", (element) => element.textContent ?? "");
+  if (!bypassState.includes("Hear it. Confirm it. Then commit.") || bypassState.includes("Refill complete")) {
+    throw new Error("The review state incorrectly displayed authoritative completion.");
+  }
+  process.stdout.write("Review navigation capability retired before authoritative completion.\n");
+
+  const unconfirmedResult = await executeTool(page, "submit_refill", { confirmed: false });
+  if (!unconfirmedResult.includes("confirmation is required") || !unconfirmedResult.includes("Nothing was submitted")) {
+    throw new Error(`Unconfirmed agent submit did not fail closed: ${unconfirmedResult}`);
+  }
+  process.stdout.write("Unconfirmed agent submission failed closed with no write.\n");
 }
 
 await mkdir(outputDirectory, { recursive: true });
@@ -127,7 +145,7 @@ try {
   }
   process.stdout.write("Competing session committed against the shared proof server.\n");
 
-  const staleResult = await executeTool(stalePage, "submit_refill");
+  const staleResult = await executeTool(stalePage, "submit_refill", { confirmed: true });
   if (!staleResult.includes("stale") || !staleResult.includes("No write")) {
     throw new Error(`Agent did not receive the stale no-write result: ${staleResult}`);
   }
@@ -165,6 +183,23 @@ try {
   accessibility.push(await auditAccessibility(stalePage, "fresh-session"));
   await stalePage.screenshot({ path: `${outputDirectory}/fresh-session.png`, fullPage: true });
   process.stdout.write("Fresh synthetic session opened without deleting the prior receipt.\n");
+
+  const eligibleCheckboxes = await stalePage.$$("input[type=checkbox]:not(:disabled)");
+  if (eligibleCheckboxes.length < 2) throw new Error("Manual fallback did not expose eligible prescriptions.");
+  await eligibleCheckboxes[0].click();
+  await eligibleCheckboxes[1].click();
+  await stalePage.click(".nav .primary");
+  await stalePage.waitForSelector("input[type=radio]");
+  await stalePage.click("input[type=radio]");
+  await stalePage.click(".nav .primary");
+  await stalePage.waitForSelector(".submit");
+  await stalePage.click(".submit");
+  await stalePage.waitForSelector(".done");
+  const manualConfirmation = await stalePage.$eval(".done", (element) => element.textContent ?? "");
+  if (!manualConfirmation.includes("Confirmation RX-")) {
+    throw new Error(`Manual fallback did not receive an authoritative receipt: ${manualConfirmation}`);
+  }
+  process.stdout.write("Manual confirmation path committed with an authoritative receipt.\n");
 
   process.stdout.write(
     `${JSON.stringify({

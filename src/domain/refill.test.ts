@@ -57,4 +57,18 @@ describe("refill flow (collapsed: prescriptions -> pickup -> review -> done)", (
     const { order } = setPrescriptionSelected(initialOrder(), "atorvastatin", true);
     expect(submitOrder(order).step).not.toBe("done");
   });
+
+  it("cannot navigate from review to a false completed state", () => {
+    let order = initialOrder();
+    order = setPrescriptionSelected(order, "atorvastatin", true).order;
+    order = advance(order);
+    order = setPharmacy(order, "Marmora");
+    order = advance(order);
+
+    expect(order.step).toBe("review");
+    expect(canAdvance(order)).toBe(false);
+    expect(stepBlocker(order)).toMatch(/review_order.*submit_refill/);
+    expect(advance(order)).toEqual(order);
+    expect(order.confirmationNumber).toBeNull();
+  });
 });
