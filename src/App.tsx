@@ -217,7 +217,7 @@ export default function App() {
           <h2>What Marcus’s agent can do now</h2>
           <p className="agentpane-sub">This is the live result of <code>document.modelContext.getTools()</code>. Tools retire as the task moves.</p>
           {supported ? (
-            <ul className="toollist">
+            <ul className="toollist" tabIndex={0} aria-label="Registered WebMCP tools">
               {tools.length === 0 && <li className="muted">Registering tools…</li>}
               {tools.map((tool) => (
                 <li key={tool.name}><code>{tool.name}</code><span className="tooldesc">{tool.description}</span></li>

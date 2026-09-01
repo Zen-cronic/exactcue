@@ -60,7 +60,7 @@ code, pre { font-family: "SFMono-Regular", Consolas, ui-monospace, monospace; }
 .synthetic { border: 1px solid #b9c3b6; border-radius: 999px; padding: 5px 8px; font: 600 10px "SFMono-Regular", Consolas, monospace; color: #59665c; }
 
 .stepper { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; list-style: none; margin: 22px 0 30px; padding: 0; }
-.step { display: flex; align-items: center; gap: 8px; color: #7b847c; font-size: 12px; font-weight: 700; border-bottom: 2px solid #dfe3dc; padding: 0 0 10px; }
+.step { display: flex; align-items: center; gap: 8px; color: #626c64; font-size: 12px; font-weight: 700; border-bottom: 2px solid #dfe3dc; padding: 0 0 10px; }
 .step span { width: 22px; height: 22px; border: 1px solid #c7cec5; border-radius: 50%; display: grid; place-items: center; font-size: 10px; }
 .step-current { color: var(--green); border-color: var(--green); }
 .step-current span { background: var(--green); color: white; border-color: var(--green); }
