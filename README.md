@@ -89,8 +89,14 @@ pnpm test       # domain, CAS, replay, and HTTP contract tests
 pnpm build      # typecheck + production build to dist/
 pnpm preview    # built artifact + labeled local proof server on :5820
 pnpm smoke:ui   # WebMCP-executed refill + stale-write/recovery proof
+pnpm capture:demo # real hosted conflict-to-recovery insert
 pnpm scan:secrets
 ```
+
+The judge-facing [demo run-of-show](./submission/DEMO_RUN_OF_SHOW.md) and
+[upload metadata](./submission/VIDEO_DESCRIPTION.md) keep the final video under three minutes.
+The capture command drives the public deployment through native WebMCP and writes its ignored MP4
+to `.artifacts/demo/exactcue-proof.mp4`.
 
 To see the agent drive it, open the app in **Chrome 149+** with
 `chrome://flags/#enable-webmcp-testing` enabled (plus the _Model Context Tool Inspector_
