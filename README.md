@@ -106,6 +106,10 @@ Each browser run receives a validated `demo-<uuid>` session in the URL and an is
 `sessions/<session>/marcus-refill`, so a judge can start a fresh synthetic demo without deleting a
 prior receipt. Malformed/path-like IDs are rejected before storage is opened.
 
+Every order response includes `X-Handsfree-Request-Id`, `X-Handsfree-Storage`, and `Server-Timing`
+receipts. The hosted Function logs only that request ID, method, status, duration, and storage mode;
+it deliberately excludes URL/session IDs, ETags, request/response bodies, and patient/order fields.
+
 Local Vite dev/preview serves the **same HTTP handler and service logic** over an in-memory adapter,
 visibly labeled `LOCAL PROOF SERVER`. That makes offline tests and deterministic conflict rehearsal
 cheap, but it is not presented as hosted Blobs proof. The true provider path must still be verified
