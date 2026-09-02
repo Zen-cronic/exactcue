@@ -10,9 +10,9 @@ ExactCue makes browser-agent actions current-state-bound. The page exposes only 
 
 The synthetic prescription refill is the proof case: a blind or motor-impaired user can hear the exact action, explicitly confirm it, and receive a server-authoritative receipt—or a visible `NO WRITE` result with a recovery path.
 
-Live app: https://iteration-3-cas--handsfree-webmcp.netlify.app
+Live app: https://iteration-3-cas--exactcue-webmcp.netlify.app
 
-Source (MIT): https://github.com/Zen-cronic/handsfree
+Source (MIT): https://github.com/Zen-cronic/exactcue
 
 Built with native `document.modelContext`, React, Netlify Functions, and Netlify Blobs conditional writes. All people and healthcare data shown are synthetic. Coordination only; no medical advice or real pharmacy integration.
 

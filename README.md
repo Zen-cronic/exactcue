@@ -42,7 +42,7 @@ load-bearing role of WebMCP here.**
 
 WebMCP requires the _page_ to expose the tools, so this demo runs on our own pharmacy app. That's
 the point, not a dodge: the WebMCP layer is a **small typed adapter** a site adds over the app it
-already has (`src/webmcp/handsfreeTools.ts` is that layer here). We deliberately
+already has (`src/webmcp/exactCueTools.ts` is that layer here). We deliberately
 built **one deep, real flow** — real state, server-authorized submit, a real stale-record
 fail-closed on camera — rather than a wide set of shallow fakes.
 
@@ -65,7 +65,7 @@ fail-closed on camera — rather than a wide set of shallow fakes.
 - `src/domain/refill.ts` — the pure, tested state machine (steps, eligibility, validation, submit).
 - `src/store.ts` — one shared order that both the React UI and the tool handlers read/mutate, so
   the page and the agent always look at the same uncommitted review state.
-- `src/webmcp/handsfreeTools.ts` — the typed WebMCP adapter. Always-on tools describe and recover;
+- `src/webmcp/exactCueTools.ts` — the typed WebMCP adapter. Always-on tools describe and recover;
   navigation and action tools register and retire with the current step. At review,
   `go_to_next_step` disappears and only the read-back + explicit-confirmation submit path can
   reach authoritative completion.
@@ -107,23 +107,23 @@ usable manual mode and says so.
 
 `netlify.toml` sets the required headers (`Origin-Agent-Cluster: ?1`,
 `Permissions-Policy: tools=(self)`), publishes `dist/`, and bundles `netlify/functions/` on Node
-22.12+. On Netlify the Function opens the site-wide `handsfree-orders` Blob store. First read
+22.12+. On Netlify the Function opens the site-wide `exactcue-orders` Blob store. First read
 creates the synthetic aggregate with `onlyIfNew`; submit performs a strong read followed by
 `setJSON(..., { onlyIfMatch: etag })`. A losing writer receives HTTP 409 with the current record.
 Each browser run receives a validated `demo-<uuid>` session in the URL and an isolated key under
 `sessions/<session>/marcus-refill`, so a judge can start a fresh synthetic demo without deleting a
 prior receipt. Malformed/path-like IDs are rejected before storage is opened.
 
-Every order response includes `X-Handsfree-Request-Id`, `X-Handsfree-Storage`, and `Server-Timing`
+Every order response includes `X-ExactCue-Request-Id`, `X-ExactCue-Storage`, and `Server-Timing`
 receipts. The hosted Function logs only that request ID, method, status, duration, and storage mode;
 it deliberately excludes URL/session IDs, ETags, request/response bodies, and patient/order fields.
 
-Live judge preview: <https://iteration-3-cas--handsfree-webmcp.netlify.app>
+Live judge preview: <https://iteration-3-cas--exactcue-webmcp.netlify.app>
 
 Local Vite dev/preview serves the **same HTTP handler and service logic** over an in-memory adapter,
 visibly labeled `LOCAL PROOF SERVER`. That makes offline tests and deterministic conflict rehearsal
 cheap, but it is not presented as hosted Blobs proof. The public preview has separately returned
-`X-Handsfree-Storage: netlify-blobs` and passed a real hosted matching commit, stale 409/no-write,
+`X-ExactCue-Storage: netlify-blobs` and passed a real hosted matching commit, stale 409/no-write,
 replay rejection, recovery, session-isolation, and anonymous reachability check.
 
 Current Netlify implementation references: [Blobs conditional writes](https://docs.netlify.com/build/data-and-storage/netlify-blobs/)
