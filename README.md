@@ -118,7 +118,7 @@ Every order response includes `X-ExactCue-Request-Id`, `X-ExactCue-Storage`, and
 receipts. The hosted Function logs only that request ID, method, status, duration, and storage mode;
 it deliberately excludes URL/session IDs, ETags, request/response bodies, and patient/order fields.
 
-Live judge preview: <https://iteration-3-cas--exactcue-webmcp.netlify.app>
+Live judge preview: <https://exactcue-webmcp.netlify.app>
 
 Local Vite dev/preview serves the **same HTTP handler and service logic** over an in-memory adapter,
 visibly labeled `LOCAL PROOF SERVER`. That makes offline tests and deterministic conflict rehearsal
