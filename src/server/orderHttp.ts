@@ -20,8 +20,8 @@ async function withRequestReceipts(
   const started = performance.now();
   const response = await handle();
   response.headers.set("Server-Timing", `app;dur=${Math.max(0, performance.now() - started).toFixed(1)}`);
-  response.headers.set("X-Handsfree-Request-Id", requestId);
-  response.headers.set("X-Handsfree-Storage", storage);
+  response.headers.set("X-ExactCue-Request-Id", requestId);
+  response.headers.set("X-ExactCue-Storage", storage);
   return response;
 }
 

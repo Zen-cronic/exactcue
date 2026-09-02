@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getModelContext, isWebMcpSupported, type RegisteredTool } from "./modelContext";
-import { createToolController } from "./handsfreeTools";
+import { createToolController } from "./exactCueTools";
 import type { StepId } from "../domain/refill";
 
 /**

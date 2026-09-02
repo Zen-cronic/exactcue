@@ -3,7 +3,7 @@ import type { DemoSessionId } from "../api/demoSession";
 import { initialOrder, type RefillOrder } from "../domain/refill";
 import type { CompareAndSwapResult, OrderRepository, VersionedOrder } from "./orderRepository";
 
-const STORE_NAME = "handsfree-orders";
+const STORE_NAME = "exactcue-orders";
 
 function requireEntry(entry: { data: unknown; etag?: string } | null): VersionedOrder | null {
   if (entry === null) return null;

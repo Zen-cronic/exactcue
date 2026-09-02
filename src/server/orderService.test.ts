@@ -90,21 +90,21 @@ describe("order HTTP handler", () => {
   it("returns no-store authoritative reads and typed conflicts", async () => {
     const repository = new InMemoryOrderRepository();
     const handler = createOrderHandler(repository, "local-memory");
-    const getResponse = await handler(new Request("http://handsfree.test/api/order"));
+    const getResponse = await handler(new Request("http://exactcue.test/api/order"));
     const view = await getResponse.json();
 
     expect(getResponse.status).toBe(200);
     expect(getResponse.headers.get("cache-control")).toBe("no-store");
-    expect(getResponse.headers.get("x-handsfree-request-id")).toMatch(
+    expect(getResponse.headers.get("x-exactcue-request-id")).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
-    expect(getResponse.headers.get("x-handsfree-storage")).toBe("local-memory");
+    expect(getResponse.headers.get("x-exactcue-storage")).toBe("local-memory");
     expect(getResponse.headers.get("server-timing")).toMatch(/^app;dur=\d+\.\d$/);
     expect(view.storage).toBe("local-memory");
 
     await repository.replaceFromAnotherSession({ ...view.order, version: 2 });
     const postResponse = await handler(
-      new Request("http://handsfree.test/api/order", {
+      new Request("http://exactcue.test/api/order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(intent(view.etag)),
@@ -120,10 +120,10 @@ describe("order HTTP handler", () => {
   it("fails safely on malformed JSON and unsupported methods", async () => {
     const handler = createOrderHandler(new InMemoryOrderRepository(), "local-memory");
     const invalid = await handler(
-      new Request("http://handsfree.test/api/order", { method: "POST", body: "{" }),
+      new Request("http://exactcue.test/api/order", { method: "POST", body: "{" }),
     );
     const unsupported = await handler(
-      new Request("http://handsfree.test/api/order", { method: "DELETE" }),
+      new Request("http://exactcue.test/api/order", { method: "DELETE" }),
     );
 
     expect(invalid.status).toBe(400);
@@ -133,11 +133,11 @@ describe("order HTTP handler", () => {
 
   it("builds metadata-only request logs with no URL or domain payload", async () => {
     const request = new Request(
-      "https://handsfree.test/api/order?session=demo-private123&patient=Marcus",
+      "https://exactcue.test/api/order?session=demo-private123&patient=Marcus",
       { method: "POST" },
     );
     const response = await createOrderHandler(new InMemoryOrderRepository(), "local-memory")(
-      new Request("https://handsfree.test/api/order"),
+      new Request("https://exactcue.test/api/order"),
     );
     const entry = createRequestLogEntry(request, response, 12.7);
     const serialized = JSON.stringify(entry);
@@ -169,16 +169,16 @@ describe("synthetic demo sessions", () => {
     const sessionA = "demo-aaaaaaaa";
     const sessionB = "demo-bbbbbbbb";
 
-    const aBefore = await handler(new Request(`http://handsfree.test/api/order?session=${sessionA}`));
+    const aBefore = await handler(new Request(`http://exactcue.test/api/order?session=${sessionA}`));
     const aView = await aBefore.json();
     const commitA = await handler(
-      new Request(`http://handsfree.test/api/order?session=${sessionA}`, {
+      new Request(`http://exactcue.test/api/order?session=${sessionA}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(intent(aView.etag)),
       }),
     );
-    const bRead = await handler(new Request(`http://handsfree.test/api/order?session=${sessionB}`));
+    const bRead = await handler(new Request(`http://exactcue.test/api/order?session=${sessionB}`));
     const bView = await bRead.json();
 
     expect(commitA.status).toBe(200);
@@ -195,9 +195,9 @@ describe("synthetic demo sessions", () => {
       return new InMemoryOrderRepository();
     }, "local-memory");
 
-    const missing = await handler(new Request("http://handsfree.test/api/order"));
+    const missing = await handler(new Request("http://exactcue.test/api/order"));
     const malformed = await handler(
-      new Request("http://handsfree.test/api/order?session=../../private"),
+      new Request("http://exactcue.test/api/order?session=../../private"),
     );
 
     expect(missing.status).toBe(400);

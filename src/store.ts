@@ -38,7 +38,7 @@ export type SubmitSessionResult =
 
 type Listener = () => void;
 
-const SESSION_STORAGE_KEY = "handsfree-demo-session";
+const SESSION_STORAGE_KEY = "exactcue-demo-session";
 
 function putSessionInUrl(sessionId: DemoSessionId, mode: "push" | "replace"): void {
   const url = new URL(window.location.href);

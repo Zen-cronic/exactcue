@@ -15,8 +15,8 @@ export function createRequestLogEntry(
   response: Response,
   durationMs: number,
 ): RequestLogEntry {
-  const requestId = response.headers.get("X-Handsfree-Request-Id") ?? "missing";
-  const storageHeader = response.headers.get("X-Handsfree-Storage");
+  const requestId = response.headers.get("X-ExactCue-Request-Id") ?? "missing";
+  const storageHeader = response.headers.get("X-ExactCue-Storage");
   const storage: StorageMode = storageHeader === "netlify-blobs" ? "netlify-blobs" : "local-memory";
   return {
     event: "http_request",

@@ -50,7 +50,7 @@ function localOrderApi(): Plugin {
     }
   };
   return {
-    name: "handsfree-local-order-api",
+    name: "exactcue-local-order-api",
     configureServer(server) {
       server.middlewares.use(middleware);
     },
