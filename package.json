@@ -13,7 +13,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --exclude '.codex/worktrees/**'",
     "smoke:ui": "node scripts/smoke-ui.mjs",
     "capture:demo": "node scripts/capture-demo.mjs",
     "scan:secrets": "node scripts/scan-secrets.mjs"
