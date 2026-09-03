@@ -9,8 +9,13 @@ const chromePath =
   process.env.CHROME_PATH ??
   "/home/zin-kg/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome";
 
+async function settleMotion() {
+  await new Promise((resolve) => setTimeout(resolve, 700));
+}
+
 async function waitUntilReady(page) {
-  await page.waitForFunction(() => document.querySelector(".proofbar")?.textContent?.includes("ready"));
+  await page.waitForFunction(() => document.querySelector(".proof-panel")?.textContent?.toLowerCase().includes("ready"));
+  await new Promise((resolve) => setTimeout(resolve, 650));
 }
 
 async function auditAccessibility(page, state) {
@@ -55,7 +60,13 @@ async function executeTool(page, name, args = {}) {
     if (!modelContext) throw new Error("WebMCP is not available in the proof browser.");
     const tool = (await modelContext.getTools()).find((candidate) => candidate.name === toolName);
     if (!tool) throw new Error(`WebMCP tool not found: ${toolName}`);
-    return modelContext.executeTool(tool, JSON.stringify(input));
+    const raw = await modelContext.executeTool(tool, JSON.stringify(input));
+    let parsed = raw;
+    if (typeof raw === "string") {
+      try { parsed = JSON.parse(raw); } catch { return { text: raw, structuredContent: null }; }
+    }
+    const text = parsed?.content?.filter((item) => item.type === "text").map((item) => item.text).join("\n") ?? String(raw);
+    return { text, structuredContent: parsed?.structuredContent ?? null };
   }, { toolName: name, input: args });
 }
 
@@ -67,10 +78,13 @@ async function driveAgentToReview(page) {
   await executeTool(page, "set_pharmacy", { pharmacy: "Marmora" });
   await executeTool(page, "go_to_next_step");
   const readBack = await executeTool(page, "review_order");
-  if (!readBack.includes("Atorvastatin") || !readBack.includes("Marmora")) {
-    throw new Error(`Agent read-back was incomplete: ${readBack}`);
+  if (!readBack.text.includes("Atorvastatin") || !readBack.text.includes("Marmora")) {
+    throw new Error(`Agent read-back was incomplete: ${JSON.stringify(readBack)}`);
   }
-  await page.waitForSelector(".submit");
+  if (readBack.structuredContent?.cue?.status !== "reviewed") {
+    throw new Error(`Agent read-back did not return a structured reviewed cue: ${JSON.stringify(readBack)}`);
+  }
+  await page.waitForSelector(".review-scene");
 
   const reviewToolNames = await page.evaluate(async () =>
     (await document.modelContext?.getTools())?.map((tool) => tool.name) ?? [],
@@ -78,17 +92,32 @@ async function driveAgentToReview(page) {
   if (reviewToolNames.includes("go_to_next_step")) {
     throw new Error("go_to_next_step remained registered at the authoritative review boundary.");
   }
-  const bypassState = await page.$eval(".flow", (element) => element.textContent ?? "");
-  if (!bypassState.includes("Hear the exact order") || bypassState.includes("Refill confirmed")) {
+  const bypassState = await page.$eval(".flow-card", (element) => element.textContent ?? "");
+  if (!bypassState.includes("Hear exactly what will happen") || bypassState.includes("Current cue. Current receipt")) {
     throw new Error("The review state incorrectly displayed authoritative completion.");
   }
   process.stdout.write("Review navigation capability retired before authoritative completion.\n");
 
   const unconfirmedResult = await executeTool(page, "submit_refill", { confirmed: false });
-  if (!unconfirmedResult.includes("confirmation is required") || !unconfirmedResult.includes("Nothing was submitted")) {
-    throw new Error(`Unconfirmed agent submit did not fail closed: ${unconfirmedResult}`);
+  if (!unconfirmedResult.text.includes("confirmation is required") || !unconfirmedResult.text.includes("Nothing was submitted") || unconfirmedResult.structuredContent?.noWrite !== true) {
+    throw new Error(`Unconfirmed agent submit did not fail closed: ${JSON.stringify(unconfirmedResult)}`);
   }
   process.stdout.write("Unconfirmed agent submission failed closed with no write.\n");
+}
+
+async function driveManualToReview(page) {
+  await waitUntilReady(page);
+  const eligibleChoices = await page.$$(".choice-card:not(.disabled)");
+  if (eligibleChoices.length < 2) throw new Error("Manual fallback did not expose eligible prescriptions.");
+  await eligibleChoices[0].click();
+  await eligibleChoices[1].click();
+  await page.click(".scene-actions .primary");
+  await page.waitForSelector(".pharmacy-list .choice-card");
+  await page.click(".pharmacy-list .choice-card");
+  await page.click(".scene-actions .primary");
+  await page.waitForSelector(".review-scene");
+  await page.click(".text-action");
+  await page.waitForFunction(() => !document.querySelector(".consent-boundary .primary")?.hasAttribute("disabled"));
 }
 
 await mkdir(outputDirectory, { recursive: true });
@@ -126,7 +155,13 @@ try {
   accessibility.push(await auditAccessibility(stalePage, "initial-350"));
   await stalePage.screenshot({ path: `${outputDirectory}/initial-350.png`, fullPage: true });
   await stalePage.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
-  process.stdout.write("Desktop and 350px initial states captured without horizontal overflow.\n");
+  await stalePage.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
+  const reducedMotionActive = await stalePage.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches);
+  if (!reducedMotionActive) throw new Error("Reduced-motion preference was not honored by the proof browser.");
+  accessibility.push(await auditAccessibility(stalePage, "reduced-motion"));
+  await stalePage.screenshot({ path: `${outputDirectory}/reduced-motion.png`, fullPage: true });
+  await stalePage.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "no-preference" }]);
+  process.stdout.write("Desktop, 350px, and reduced-motion states captured without horizontal overflow.\n");
 
   await driveAgentToReview(stalePage);
   await waitForTool(stalePage, "submit_refill");
@@ -141,6 +176,7 @@ try {
       throw new Error(`Review-step WebMCP tool missing: ${requiredTool}`);
     }
   }
+  await settleMotion();
   accessibility.push(await auditAccessibility(stalePage, "review"));
   await stalePage.screenshot({ path: `${outputDirectory}/review.png`, fullPage: true });
   process.stdout.write("WebMCP agent staged and read back the current review.\n");
@@ -153,6 +189,7 @@ try {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      cueId: "cue-competing-12345678",
       expectedVersion: current.order.version,
       expectedEtag: current.etag,
       selectedPrescriptionIds: ["rx-1", "rx-2"],
@@ -177,7 +214,7 @@ try {
   stalePage.on("request", holdSubmit);
   const staleSubmission = executeTool(stalePage, "submit_refill", { confirmed: true });
   const interceptedSubmit = await heldSubmit;
-  await stalePage.waitForSelector(".hero-submitting");
+  await stalePage.waitForSelector(".phase-submitting");
   accessibility.push(await auditAccessibility(stalePage, "submitting"));
   await stalePage.screenshot({ path: `${outputDirectory}/submitting.png`, fullPage: true });
   process.stdout.write("In-flight current-record check captured while its POST was pending.\n");
@@ -185,29 +222,31 @@ try {
   const staleResult = await staleSubmission;
   stalePage.off("request", holdSubmit);
   await stalePage.setRequestInterception(false);
-  if (!staleResult.includes("stale") || !staleResult.includes("No write")) {
-    throw new Error(`Agent did not receive the stale no-write result: ${staleResult}`);
+  if (!staleResult.text.includes("stale") || staleResult.structuredContent?.noWrite !== true || staleResult.structuredContent?.status !== "conflict") {
+    throw new Error(`Agent did not receive the stale no-write result: ${JSON.stringify(staleResult)}`);
   }
-  await stalePage.waitForSelector(".conflict");
-  const conflictText = await stalePage.$eval(".conflict", (element) => element.textContent ?? "");
-  if (!conflictText.includes("FAIL-CLOSED") || !conflictText.includes("Nothing was submitted")) {
+  await stalePage.waitForSelector(".conflict-banner");
+  const conflictText = await stalePage.$eval(".conflict-banner", (element) => element.textContent ?? "");
+  if (!conflictText.includes("FAIL CLOSED") || !conflictText.includes("NO WRITE")) {
     throw new Error(`Conflict proof copy is incomplete: ${conflictText}`);
   }
+  await settleMotion();
   accessibility.push(await auditAccessibility(stalePage, "stale-conflict"));
   await stalePage.screenshot({ path: `${outputDirectory}/stale-conflict.png`, fullPage: true });
   process.stdout.write("Second session failed closed as stale.\n");
 
   await executeTool(stalePage, "reload_current_record");
-  await stalePage.waitForSelector(".done");
-  const recoveredText = await stalePage.$eval(".flow", (element) => element.textContent ?? "");
-  if (!recoveredText.includes("Current record loaded")) {
+  await stalePage.waitForSelector(".done-scene");
+  const recoveredText = await stalePage.$eval(".flow-card", (element) => element.textContent ?? "");
+  if (!recoveredText.includes("Current cue. Current receipt") || !recoveredText.includes("RX-")) {
     throw new Error("The stale session did not visibly recover to the current record.");
   }
+  await settleMotion();
   accessibility.push(await auditAccessibility(stalePage, "recovered"));
   await stalePage.screenshot({ path: `${outputDirectory}/recovered.png`, fullPage: true });
   process.stdout.write("Stale session recovered to the current record.\n");
 
-  await stalePage.click(".done button");
+  await stalePage.click(".done-scene button");
   await stalePage.waitForFunction(
     (previousSession) => new URL(window.location.href).searchParams.get("session") !== previousSession,
     {},
@@ -215,30 +254,41 @@ try {
   );
   await waitUntilReady(stalePage);
   const freshSessionId = new URL(stalePage.url()).searchParams.get("session");
-  const freshText = await stalePage.$eval(".flow", (element) => element.textContent ?? "");
-  if (!freshSessionId || !freshText.includes("Choose refills")) {
+  const freshText = await stalePage.$eval(".flow-card", (element) => element.textContent ?? "");
+  if (!freshSessionId || !freshText.includes("What should the agent refill")) {
     throw new Error("Fresh synthetic demo did not open an isolated initial record.");
   }
   accessibility.push(await auditAccessibility(stalePage, "fresh-session"));
   await stalePage.screenshot({ path: `${outputDirectory}/fresh-session.png`, fullPage: true });
   process.stdout.write("Fresh synthetic session opened without deleting the prior receipt.\n");
 
-  const eligibleCheckboxes = await stalePage.$$("input[type=checkbox]:not(:disabled)");
-  if (eligibleCheckboxes.length < 2) throw new Error("Manual fallback did not expose eligible prescriptions.");
-  await eligibleCheckboxes[0].click();
-  await eligibleCheckboxes[1].click();
-  await stalePage.click(".nav .primary");
-  await stalePage.waitForSelector("input[type=radio]");
-  await stalePage.click("input[type=radio]");
-  await stalePage.click(".nav .primary");
-  await stalePage.waitForSelector(".submit");
-  await stalePage.click(".submit");
-  await stalePage.waitForSelector(".done");
-  const manualConfirmation = await stalePage.$eval(".done", (element) => element.textContent ?? "");
-  if (!manualConfirmation.includes("Confirmation") || !manualConfirmation.includes("RX-")) {
+  await driveManualToReview(stalePage);
+  await stalePage.click(".consent-boundary .primary");
+  await stalePage.waitForSelector(".done-scene");
+  const manualConfirmation = await stalePage.$eval(".done-scene", (element) => element.textContent ?? "");
+  if (!/confirmation/i.test(manualConfirmation) || !manualConfirmation.includes("RX-")) {
     throw new Error(`Manual fallback did not receive an authoritative receipt: ${manualConfirmation}`);
   }
   process.stdout.write("Manual confirmation path committed with an authoritative receipt.\n");
+
+  const judgePage = await browser.newPage();
+  judgePage.setDefaultTimeout(10_000);
+  await judgePage.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
+  await judgePage.goto(`${baseURL}/?judge=1`, { waitUntil: "domcontentloaded" });
+  await driveManualToReview(judgePage);
+  await judgePage.click(".judge-rehearsal button");
+  await judgePage.waitForSelector(".conflict-banner");
+  const judgeConflict = await judgePage.$eval(".conflict-banner", (element) => element.textContent ?? "");
+  if (!judgeConflict.includes("NO WRITE") || !judgeConflict.includes("v2")) {
+    throw new Error(`Built-in judge rehearsal did not expose its stale no-write receipt: ${judgeConflict}`);
+  }
+  await settleMotion();
+  accessibility.push(await auditAccessibility(judgePage, "judge-rehearsal"));
+  await judgePage.screenshot({ path: `${outputDirectory}/judge-rehearsal.png`, fullPage: true });
+  await judgePage.click(".conflict-banner .primary");
+  await judgePage.waitForSelector(".done-scene");
+  process.stdout.write("Built-in judge mode reproduced a real commit, stale 409, and recovery.\n");
+  await judgePage.close();
 
   process.stdout.write(
     `${JSON.stringify({
@@ -252,11 +302,13 @@ try {
       screenshots: [
         "initial-desktop.png",
         "initial-350.png",
+        "reduced-motion.png",
         "review.png",
         "submitting.png",
         "stale-conflict.png",
         "recovered.png",
         "fresh-session.png",
+        "judge-rehearsal.png",
       ],
     }, null, 2)}\n`,
   );
