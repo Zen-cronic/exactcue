@@ -14,7 +14,8 @@ const execFileAsync = promisify(execFile);
 const recorderPath = outputPath.replace(/\.mp4$/i, ".webm");
 
 async function waitUntilReady(page) {
-  await page.waitForFunction(() => document.querySelector(".proofbar")?.textContent?.includes("ready"));
+  await page.waitForFunction(() => document.querySelector(".proof-panel")?.textContent?.toLowerCase().includes("ready"));
+  await pause(650);
 }
 
 async function waitForTool(page, name) {
@@ -50,6 +51,7 @@ async function competingCommit(page) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      cueId: "cue-competing-capture",
       expectedVersion: current.order.version,
       expectedEtag: current.etag,
       selectedPrescriptionIds: ["rx-1", "rx-2"],
@@ -67,7 +69,7 @@ async function stageReview(page) {
   await executeTool(page, "set_pharmacy", { pharmacy: "Marmora" });
   await executeTool(page, "go_to_next_step");
   await executeTool(page, "review_order");
-  await page.waitForSelector(".submit");
+  await page.waitForSelector(".review-scene");
 }
 
 await mkdir(outputPath.slice(0, outputPath.lastIndexOf("/")), { recursive: true });
@@ -98,7 +100,7 @@ try {
   await stageReview(page);
   await competingCommit(page);
   await executeTool(page, "submit_refill", { confirmed: true });
-  await page.waitForSelector(".conflict");
+  await page.waitForSelector(".conflict-banner");
 
   const recorder = await page.screencast({
     path: recorderPath,
@@ -108,8 +110,8 @@ try {
   });
 
   await pause(5000);
-  await page.click(".conflict button");
-  await page.waitForSelector(".done");
+  await page.click(".conflict-banner .primary");
+  await page.waitForSelector(".done-scene");
   await pause(5000);
 
   await recorder.stop();
