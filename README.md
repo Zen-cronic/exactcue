@@ -93,10 +93,9 @@ pnpm capture:demo # real hosted conflict-to-recovery insert
 pnpm scan:secrets
 ```
 
-The judge-facing [demo run-of-show](./submission/DEMO_RUN_OF_SHOW.md) and
-[upload metadata](./submission/VIDEO_DESCRIPTION.md) keep the final video under three minutes.
-The capture command drives the public deployment through native WebMCP and writes its ignored MP4
-to `.artifacts/demo/exactcue-proof.mp4`.
+The capture command drives the public deployment through native WebMCP and writes its MP4 outside
+the product repository at `../submission/exactcue/video/exactcue-proof.mp4`. Judge-facing demo and
+upload materials live alongside that artifact and are deliberately not tracked here.
 
 To see the agent drive it, open the app in **Chrome 149+** with
 `chrome://flags/#enable-webmcp-testing` enabled (plus the _Model Context Tool Inspector_

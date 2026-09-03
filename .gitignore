@@ -2,6 +2,7 @@ node_modules
 dist
 .netlify
 .artifacts
+submission/
 .playwright-mcp/
 BUILD_CHECKPOINT.md
 *.tsbuildinfo

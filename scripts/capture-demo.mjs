@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import puppeteer from "puppeteer-core";
 
 const appURL = process.env.APP_URL ?? "https://exactcue-webmcp.netlify.app";
-const outputPath = process.env.DEMO_CAPTURE ?? ".artifacts/demo/exactcue-proof.mp4";
+const outputPath = process.env.DEMO_CAPTURE ?? "../submission/exactcue/video/exactcue-proof.mp4";
 const chromePath =
   process.env.CHROME_PATH ??
   "/home/zin-kg/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome";
