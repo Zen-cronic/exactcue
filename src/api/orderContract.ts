@@ -9,6 +9,7 @@ export interface OrderView {
 }
 
 export interface SubmitOrderRequest {
+  cueId: string;
   expectedVersion: number;
   expectedEtag: string;
   selectedPrescriptionIds: string[];
@@ -16,16 +17,25 @@ export interface SubmitOrderRequest {
   confirmed: true;
 }
 
+export interface CommitReceipt {
+  cueId: string;
+  confirmationNumber: string;
+  committedVersion: number;
+}
+
 export interface SubmittedResponse {
   kind: "submitted";
   message: string;
   current: OrderView;
+  receipt: CommitReceipt;
 }
 
 export interface ConflictResponse {
   kind: "conflict";
   message: string;
   current: OrderView;
+  attemptedCueId: string;
+  noWrite: true;
 }
 
 export interface InvalidResponse {

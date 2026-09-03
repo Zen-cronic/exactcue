@@ -9,6 +9,7 @@ import { createRequestLogEntry } from "./requestTelemetry";
 
 function intent(etag: string, version = 1): SubmitOrderRequest {
   return {
+    cueId: "cue-test-12345678",
     expectedVersion: version,
     expectedEtag: etag,
     selectedPrescriptionIds: ["rx-1", "rx-2"],
@@ -31,6 +32,11 @@ describe("authoritative refill submit", () => {
     expect(result.body.current.order.version).toBe(2);
     expect(result.body.current.order.confirmationNumber).toMatch(/^RX-/);
     expect(result.body.current.etag).not.toBe(before.etag);
+    expect(result.body.receipt).toEqual({
+      cueId: "cue-test-12345678",
+      confirmationNumber: result.body.current.order.confirmationNumber,
+      committedVersion: 2,
+    });
   });
 
   it("fails closed when another session changes the ETag", async () => {
@@ -47,6 +53,8 @@ describe("authoritative refill submit", () => {
     expect(result.body.message).toMatch(/Nothing was submitted/);
     expect(result.body.current.order.step).toBe("prescriptions");
     expect(result.body.current.order.version).toBe(2);
+    expect(result.body.attemptedCueId).toBe("cue-test-12345678");
+    expect(result.body.noWrite).toBe(true);
   });
 
   it("rejects a replay of the token used by a successful commit", async () => {
@@ -80,6 +88,18 @@ describe("authoritative refill submit", () => {
     const result = await submitOrderIntent(repository, "local-memory", {
       ...intent(before.etag),
       confirmed: false,
+    });
+
+    expect(result.status).toBe(400);
+    expect(result.body.kind).toBe("invalid");
+  });
+
+  it("rejects a missing or malformed cue reference", async () => {
+    const repository = new InMemoryOrderRepository();
+    const before = await repository.read();
+    const result = await submitOrderIntent(repository, "local-memory", {
+      ...intent(before.etag),
+      cueId: "not-a-cue",
     });
 
     expect(result.status).toBe(400);

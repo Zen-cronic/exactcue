@@ -17,16 +17,23 @@ import {
   type RefillOrder,
   type StepId,
 } from "../domain/refill";
+import { publicExactCue } from "../domain/exactCue";
 import {
   actionBlocker,
+  getExactCue,
   getOrder,
+  getSession,
   hasCurrentReadBack,
   markReadBack,
   recoverFromConflict,
   setOrder,
   submitCurrentOrder,
 } from "../store";
-import { getModelContext, type ToolDefinition } from "./modelContext";
+import {
+  getModelContext,
+  type ToolDefinition,
+  type ToolExecutionResult,
+} from "./modelContext";
 
 function str(params: Record<string, unknown>, key: string, fallback = ""): string {
   const v = params[key];
@@ -35,6 +42,51 @@ function str(params: Record<string, unknown>, key: string, fallback = ""): strin
 function bool(params: Record<string, unknown>, key: string, fallback = true): boolean {
   const v = params[key];
   return typeof v === "boolean" ? v : fallback;
+}
+
+export type CueToolStatus = "ok" | "blocked" | "submitted" | "conflict" | "error";
+
+export interface CueToolPayload {
+  ok: boolean;
+  status: CueToolStatus;
+  step: StepId;
+  phase: ReturnType<typeof getSession>["phase"];
+  message: string;
+  nextAction: string;
+  cue: ReturnType<typeof publicExactCue>;
+  noWrite: boolean;
+}
+
+function nextAction(): string {
+  const session = getSession();
+  if (session.phase === "conflict") return "Call reload_current_record, then review the new cue.";
+  if (session.phase === "error") return "Retry the authoritative read before continuing.";
+  if (session.phase === "submitting") return "Wait for the authoritative server result.";
+  if (session.order.step === "prescriptions") return "Select eligible prescriptions, then call go_to_next_step.";
+  if (session.order.step === "pickup") return "Choose a pharmacy, then call go_to_next_step.";
+  if (session.order.step === "review") return "Call review_order, ask for confirmation, then call submit_refill.";
+  return "Report the authoritative receipt to the user.";
+}
+
+export function toolResult(
+  message: string,
+  status: CueToolStatus = "ok",
+  noWrite = false,
+): ToolExecutionResult<CueToolPayload> {
+  const session = getSession();
+  return {
+    content: [{ type: "text", text: message }],
+    structuredContent: {
+      ok: status === "ok" || status === "submitted",
+      status,
+      step: session.order.step,
+      phase: session.phase,
+      message,
+      nextAction: nextAction(),
+      cue: publicExactCue(getExactCue()),
+      noWrite,
+    },
+  };
 }
 
 const alwaysTools: ToolDefinition[] = [
@@ -47,7 +99,9 @@ const alwaysTools: ToolDefinition[] = [
     annotations: { readOnlyHint: true },
     execute: () => {
       const blocked = actionBlocker();
-      return blocked ? `Authoritative record status: ${blocked}` : describeStep(getOrder());
+      return blocked
+        ? toolResult(`Authoritative record status: ${blocked}`, "blocked", true)
+        : toolResult(describeStep(getOrder()));
     },
   },
   {
@@ -57,7 +111,7 @@ const alwaysTools: ToolDefinition[] = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     execute: () => {
       recoverFromConflict();
-      return `Current record loaded. ${describeStep(getOrder())}`;
+      return toolResult(`Current record loaded. ${describeStep(getOrder())}`);
     },
   },
 ];
@@ -70,12 +124,12 @@ const nextTool: ToolDefinition = {
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   execute: () => {
     const unavailable = actionBlocker();
-    if (unavailable) return `Cannot continue: ${unavailable}`;
+    if (unavailable) return toolResult(`Cannot continue: ${unavailable}`, "blocked", true);
     const blocker = stepBlocker(getOrder());
-    if (blocker) return `Cannot continue yet: ${blocker}`;
+    if (blocker) return toolResult(`Cannot continue yet: ${blocker}`, "blocked", true);
     const next = advance(getOrder());
     setOrder(next);
-    return `Now on step "${next.step}". ${describeStep(next)}`;
+    return toolResult(`Now on step "${next.step}". ${describeStep(next)}`);
   },
 };
 
@@ -85,10 +139,10 @@ const backTool: ToolDefinition = {
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   execute: () => {
     const unavailable = actionBlocker();
-    if (unavailable) return `Cannot go back: ${unavailable}`;
+    if (unavailable) return toolResult(`Cannot go back: ${unavailable}`, "blocked", true);
     const next = goBack(getOrder());
     setOrder(next);
-    return `Back on step "${next.step}". ${describeStep(next)}`;
+    return toolResult(`Back on step "${next.step}". ${describeStep(next)}`);
   },
 };
 
@@ -110,14 +164,16 @@ const prescriptionTools: ToolDefinition[] = [
     },
     execute: (params) => {
       const unavailable = actionBlocker();
-      if (unavailable) return `Cannot change prescriptions: ${unavailable}`;
+      if (unavailable) return toolResult(`Cannot change prescriptions: ${unavailable}`, "blocked", true);
+      const before = getOrder();
       const { order, note } = setPrescriptionSelected(
-        getOrder(),
+        before,
         str(params, "prescription"),
         bool(params, "selected"),
       );
+      const changed = order !== before;
       setOrder(order);
-      return note;
+      return toolResult(note, changed ? "ok" : "blocked", !changed);
     },
   },
 ];
@@ -134,13 +190,13 @@ const pickupTools: ToolDefinition[] = [
     },
     execute: (params) => {
       const unavailable = actionBlocker();
-      if (unavailable) return `Cannot change pickup: ${unavailable}`;
+      if (unavailable) return toolResult(`Cannot change pickup: ${unavailable}`, "blocked", true);
       const before = getOrder();
       const next = setPharmacy(before, str(params, "pharmacy"));
-      if (next === before) return `No pharmacy matched "${str(params, "pharmacy")}".`;
+      if (next === before) return toolResult(`No pharmacy matched "${str(params, "pharmacy")}".`, "blocked", true);
       setOrder(next);
       const p = next.pharmacies.find((x) => x.id === next.chosenPharmacyId);
-      return `Pickup set to ${p?.name}, ${p?.address}.`;
+      return toolResult(`Pickup set to ${p?.name}, ${p?.address}.`);
     },
   },
 ];
@@ -153,9 +209,9 @@ const reviewTools: ToolDefinition[] = [
     annotations: { readOnlyHint: true },
     execute: () => {
       const unavailable = actionBlocker();
-      if (unavailable) return `Cannot review yet: ${unavailable}`;
-      markReadBack();
-      return `${orderSummary(getOrder())}\nAsk the user to confirm this exact current order before calling submit_refill with confirmed set to true.`;
+      if (unavailable) return toolResult(`Cannot review yet: ${unavailable}`, "blocked", true);
+      markReadBack("agent");
+      return toolResult(`${orderSummary(getOrder())}\nAsk the user to confirm this exact current order before calling submit_refill with confirmed set to true.`);
     },
   },
   {
@@ -176,16 +232,20 @@ const reviewTools: ToolDefinition[] = [
     },
     execute: async (params) => {
       const unavailable = actionBlocker();
-      if (unavailable) return `Cannot submit: ${unavailable}`;
+      if (unavailable) return toolResult(`Cannot submit: ${unavailable}`, "blocked", true);
       if (!bool(params, "confirmed", false)) {
-        return "Cannot submit: explicit user confirmation is required. Nothing was submitted.";
+        return toolResult("Cannot submit: explicit user confirmation is required. Nothing was submitted.", "blocked", true);
       }
       if (!hasCurrentReadBack()) {
-        return "Cannot submit yet. Call review_order, read the exact current order to the user, and wait for their confirmation.";
+        return toolResult("Cannot submit yet. Call review_order, read the exact current order to the user, and wait for their confirmation.", "blocked", true);
       }
       const result = await submitCurrentOrder(true);
-      if (result.kind === "submitted") return `${result.message} ${orderSummary(getOrder())}`;
-      return `${result.message} No write was made by this session.`;
+      if (result.kind === "submitted") return toolResult(`${result.message} ${orderSummary(getOrder())}`, "submitted");
+      return toolResult(
+        `${result.message} No write was made by this session.`,
+        result.kind === "conflict" ? "conflict" : result.kind === "error" ? "error" : "blocked",
+        true,
+      );
     },
   },
 ];

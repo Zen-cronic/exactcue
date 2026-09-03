@@ -7,9 +7,14 @@ export interface ToolDefinition {
   description: string;
   // JSON Schema (draft-07 style) describing the tool's parameters.
   inputSchema: Record<string, unknown>;
-  // Receives the parsed params object, returns a human/agent-readable string.
-  execute: (params: Record<string, unknown>) => Promise<string> | string;
+  // Chrome serializes this MCP-compatible object back to the invoking agent.
+  execute: (params: Record<string, unknown>) => Promise<ToolExecutionResult> | ToolExecutionResult;
   annotations?: Record<string, unknown>;
+}
+
+export interface ToolExecutionResult<T = unknown> {
+  content: [{ type: "text"; text: string }];
+  structuredContent: T;
 }
 
 export interface RegisterToolOptions {
@@ -24,7 +29,7 @@ export interface RegisteredTool {
   inputSchema: Record<string, unknown>;
   origin?: string;
   annotations?: Record<string, unknown>;
-  execute?: (params: Record<string, unknown>) => Promise<string> | string;
+  execute?: (params: Record<string, unknown>) => Promise<ToolExecutionResult> | ToolExecutionResult;
 }
 
 export interface ModelContext {

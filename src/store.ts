@@ -2,22 +2,21 @@
 // the authoritative order; local choices are an uncommitted review proposal.
 
 import { fetchAuthoritativeOrder, submitAuthoritativeOrder } from "./api/orderClient";
-import type { OrderView, StorageMode } from "./api/orderContract";
+import type { CommitReceipt, OrderView, StorageMode } from "./api/orderContract";
 import {
   createDemoSessionId,
   parseDemoSessionId,
   type DemoSessionId,
 } from "./api/demoSession";
-import { initialOrder, selectedPrescriptions, type RefillOrder } from "./domain/refill";
+import { initialOrder, type RefillOrder } from "./domain/refill";
+import {
+  createExactCue,
+  isCueCurrent,
+  type CueReviewMethod,
+  type ExactCueSnapshot,
+} from "./domain/exactCue";
 
 export type SessionPhase = "loading" | "ready" | "submitting" | "conflict" | "error";
-
-interface ReviewReceipt {
-  expectedVersion: number;
-  expectedEtag: string;
-  selectedPrescriptionIds: string[];
-  chosenPharmacyId: string;
-}
 
 export interface OrderSession {
   sessionId: DemoSessionId;
@@ -27,7 +26,8 @@ export interface OrderSession {
   phase: SessionPhase;
   message: string | null;
   conflict: OrderView | null;
-  reviewReceipt: ReviewReceipt | null;
+  exactCue: ExactCueSnapshot | null;
+  commitReceipt: CommitReceipt | null;
 }
 
 export type SubmitSessionResult =
@@ -68,7 +68,8 @@ let current: OrderSession = {
   phase: "loading",
   message: null,
   conflict: null,
-  reviewReceipt: null,
+  exactCue: null,
+  commitReceipt: null,
 };
 const listeners = new Set<Listener>();
 
@@ -93,25 +94,25 @@ export function getOrder(): RefillOrder {
 
 export function setOrder(next: RefillOrder): void {
   if (current.phase !== "ready") return;
-  publish({ ...current, order: next, message: null, conflict: null, reviewReceipt: null });
+  publish({ ...current, order: next, message: null, conflict: null, exactCue: null, commitReceipt: null });
 }
 
-export function markReadBack(): void {
+export function markReadBack(reviewedVia: CueReviewMethod = "agent"): ExactCueSnapshot | null {
   if (
     current.phase !== "ready" ||
     current.order.step !== "review" ||
     !current.etag ||
     !current.order.chosenPharmacyId
-  ) return;
+  ) return null;
+  const exactCue = isCueCurrent(current.exactCue, current.order, current.etag)
+    ? { ...current.exactCue, reviewedVia }
+    : createExactCue(current.order, current.etag, reviewedVia);
   publish({
     ...current,
-    reviewReceipt: {
-      expectedVersion: current.order.version,
-      expectedEtag: current.etag,
-      selectedPrescriptionIds: selectedPrescriptions(current.order).map((item) => item.id),
-      chosenPharmacyId: current.order.chosenPharmacyId,
-    },
+    exactCue,
+    message: `Exact cue reviewed via ${reviewedVia.replace("-", " ")}.`,
   });
+  return exactCue;
 }
 
 export function hasCurrentReadBack(): boolean {
@@ -120,16 +121,13 @@ export function hasCurrentReadBack(): boolean {
     current.order.step !== "review" ||
     !current.etag ||
     !current.order.chosenPharmacyId ||
-    !current.reviewReceipt
+    !current.exactCue
   ) return false;
-  const selectedIds = selectedPrescriptions(current.order).map((item) => item.id);
-  return (
-    current.reviewReceipt.expectedVersion === current.order.version &&
-    current.reviewReceipt.expectedEtag === current.etag &&
-    current.reviewReceipt.chosenPharmacyId === current.order.chosenPharmacyId &&
-    current.reviewReceipt.selectedPrescriptionIds.length === selectedIds.length &&
-    current.reviewReceipt.selectedPrescriptionIds.every((id, index) => id === selectedIds[index])
-  );
+  return isCueCurrent(current.exactCue, current.order, current.etag);
+}
+
+export function getExactCue(): ExactCueSnapshot | null {
+  return current.exactCue;
 }
 
 export function actionBlocker(): string | null {
@@ -148,7 +146,7 @@ export function actionBlocker(): string | null {
 }
 
 export async function loadAuthoritativeOrder(): Promise<void> {
-  publish({ ...current, phase: "loading", message: null, conflict: null, reviewReceipt: null });
+  publish({ ...current, phase: "loading", message: null, conflict: null, exactCue: null, commitReceipt: null });
   try {
     const view = await fetchAuthoritativeOrder(current.sessionId);
     publish({
@@ -159,7 +157,8 @@ export async function loadAuthoritativeOrder(): Promise<void> {
       phase: "ready",
       message: "Authoritative record loaded. Agent actions are now enabled.",
       conflict: null,
-      reviewReceipt: null,
+      exactCue: null,
+      commitReceipt: null,
     });
   } catch (error) {
     publish({
@@ -167,7 +166,8 @@ export async function loadAuthoritativeOrder(): Promise<void> {
       phase: "error",
       message: errorMessage(error),
       conflict: null,
-      reviewReceipt: null,
+      exactCue: null,
+      commitReceipt: null,
     });
   }
 }
@@ -178,16 +178,25 @@ export async function submitCurrentOrder(confirmed: boolean): Promise<SubmitSess
   if (!confirmed) {
     return { kind: "invalid", message: "Explicit confirmation is required. Nothing was submitted." };
   }
-  if (!hasCurrentReadBack() || !current.reviewReceipt) {
+  if (!hasCurrentReadBack() || !current.exactCue) {
     return { kind: "invalid", message: "The exact current order must be read back before confirmation. Nothing was submitted." };
   }
 
   const submittedSession = current;
-  const receipt = current.reviewReceipt;
-  publish({ ...current, phase: "submitting", message: "Checking the current record…" });
+  const cue = current.exactCue;
+  publish({
+    ...current,
+    phase: "submitting",
+    message: "Checking the exact cue against the current record…",
+    exactCue: { ...cue, status: "checking" },
+  });
   try {
     const result = await submitAuthoritativeOrder(submittedSession.sessionId, {
-      ...receipt,
+      cueId: cue.cueId,
+      expectedVersion: cue.expectedVersion,
+      expectedEtag: cue.expectedEtag,
+      selectedPrescriptionIds: cue.selectedPrescriptionIds,
+      chosenPharmacyId: cue.chosenPharmacyId,
       confirmed,
     });
 
@@ -200,7 +209,8 @@ export async function submitCurrentOrder(confirmed: boolean): Promise<SubmitSess
         phase: "ready",
         message: result.message,
         conflict: null,
-        reviewReceipt: null,
+        exactCue: { ...cue, status: "committed" },
+        commitReceipt: result.receipt,
       });
       return { kind: "submitted", message: result.message };
     }
@@ -210,16 +220,80 @@ export async function submitCurrentOrder(confirmed: boolean): Promise<SubmitSess
         phase: "conflict",
         message: result.message,
         conflict: result.current,
-        reviewReceipt: null,
+        exactCue: { ...cue, status: "stale" },
+        commitReceipt: null,
       });
       return { kind: "conflict", message: result.message };
     }
 
-    publish({ ...submittedSession, phase: "ready", message: result.message, reviewReceipt: null });
+    publish({ ...submittedSession, phase: "ready", message: result.message, exactCue: null, commitReceipt: null });
     return { kind: result.kind, message: result.message };
   } catch (error) {
     const message = errorMessage(error);
-    publish({ ...submittedSession, phase: "error", message, reviewReceipt: null });
+    publish({ ...submittedSession, phase: "error", message, exactCue: { ...cue, status: "reviewed" }, commitReceipt: null });
+    return { kind: "error", message };
+  }
+}
+
+/** Runs a real two-request compare-and-swap proof using only synthetic session data. */
+export async function rehearseStaleConflict(): Promise<SubmitSessionResult> {
+  const blocker = actionBlocker();
+  if (blocker) return { kind: "error", message: blocker };
+  if (!hasCurrentReadBack() || !current.exactCue) {
+    return { kind: "invalid", message: "Review the exact cue before starting the stale-tab rehearsal." };
+  }
+
+  const staleSession = current;
+  const cue = current.exactCue;
+  const request = {
+    cueId: cue.cueId,
+    expectedVersion: cue.expectedVersion,
+    expectedEtag: cue.expectedEtag,
+    selectedPrescriptionIds: cue.selectedPrescriptionIds,
+    chosenPharmacyId: cue.chosenPharmacyId,
+    confirmed: true as const,
+  };
+  publish({
+    ...current,
+    phase: "submitting",
+    message: "Rehearsal: another tab is committing this synthetic cue first…",
+    exactCue: { ...cue, status: "checking" },
+  });
+
+  try {
+    const competing = await submitAuthoritativeOrder(staleSession.sessionId, request);
+    if (competing.kind !== "submitted") {
+      const message = `The rehearsal could not stage the competing commit. ${competing.message}`;
+      publish({
+        ...staleSession,
+        phase: competing.kind === "conflict" ? "conflict" : "error",
+        message,
+        conflict: competing.kind === "conflict" ? competing.current : null,
+        exactCue: { ...cue, status: competing.kind === "conflict" ? "stale" : "reviewed" },
+        commitReceipt: null,
+      });
+      return { kind: competing.kind, message };
+    }
+
+    const staleAttempt = await submitAuthoritativeOrder(staleSession.sessionId, request);
+    if (staleAttempt.kind !== "conflict") {
+      const message = "The stale-tab rehearsal did not receive the required conflict. Stop and retry with a fresh session.";
+      publish({ ...staleSession, phase: "error", message, exactCue: { ...cue, status: "reviewed" }, commitReceipt: null });
+      return { kind: "error", message };
+    }
+
+    publish({
+      ...staleSession,
+      phase: "conflict",
+      message: "Rehearsal complete: another tab committed first; this stale tab was rejected with no second write.",
+      conflict: staleAttempt.current,
+      exactCue: { ...cue, status: "stale" },
+      commitReceipt: null,
+    });
+    return { kind: "conflict", message: staleAttempt.message };
+  } catch (error) {
+    const message = errorMessage(error);
+    publish({ ...staleSession, phase: "error", message, exactCue: { ...cue, status: "reviewed" }, commitReceipt: null });
     return { kind: "error", message };
   }
 }
@@ -234,7 +308,8 @@ export function recoverFromConflict(): void {
     phase: "ready",
     message: "Current record loaded. Hear the updated read-back before confirming again.",
     conflict: null,
-    reviewReceipt: null,
+    exactCue: null,
+    commitReceipt: null,
   });
 }
 
@@ -249,7 +324,8 @@ export async function startFreshDemo(): Promise<void> {
     phase: "loading",
     message: "Starting a fresh isolated synthetic demo…",
     conflict: null,
-    reviewReceipt: null,
+    exactCue: null,
+    commitReceipt: null,
   });
   await loadAuthoritativeOrder();
 }

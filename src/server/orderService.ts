@@ -26,6 +26,8 @@ function validateRequest(value: unknown): SubmitOrderRequest | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<SubmitOrderRequest>;
   if (
+    typeof candidate.cueId !== "string" ||
+    !/^cue-[a-z0-9-]{8,72}$/i.test(candidate.cueId) ||
     !Number.isInteger(candidate.expectedVersion) ||
     typeof candidate.expectedEtag !== "string" ||
     candidate.expectedEtag.length === 0 ||
@@ -71,7 +73,11 @@ function buildSubmittedOrder(authoritative: RefillOrder, request: SubmitOrderReq
     : "The authoritative record could not be submitted. Nothing was changed.";
 }
 
-function conflict(current: VersionedOrder, storage: StorageMode): ServiceSubmitResult {
+function conflict(
+  current: VersionedOrder,
+  storage: StorageMode,
+  attemptedCueId: string,
+): ServiceSubmitResult {
   return {
     status: 409,
     body: {
@@ -79,6 +85,8 @@ function conflict(current: VersionedOrder, storage: StorageMode): ServiceSubmitR
       message:
         "This review is stale because the authoritative record changed. Nothing was submitted from this session. Reload the current record, hear the new read-back, and confirm again.",
       current: view(current, storage),
+      attemptedCueId,
+      noWrite: true,
     },
   };
 }
@@ -97,20 +105,32 @@ export async function submitOrderIntent(
 
   const authoritative = await repository.read();
   if (request.expectedEtag !== authoritative.etag || request.expectedVersion !== authoritative.order.version) {
-    return conflict(authoritative, storage);
+    return conflict(authoritative, storage, request.cueId);
   }
 
   const next = buildSubmittedOrder(authoritative.order, request);
   if (typeof next === "string") return { status: 400, body: { kind: "invalid", message: next } };
 
   const result = await repository.compareAndSwap(request.expectedEtag, next);
-  if (result.status === "conflict") return conflict(result.current, storage);
+  if (result.status === "conflict") return conflict(result.current, storage, request.cueId);
+  const confirmationNumber = result.current.order.confirmationNumber;
+  if (!confirmationNumber) {
+    return {
+      status: 400,
+      body: { kind: "invalid", message: "The server did not produce a receipt. Nothing was claimed as complete." },
+    };
+  }
   return {
     status: 200,
     body: {
       kind: "submitted",
       message: `Refill submitted as ${result.current.order.confirmationNumber}.`,
       current: view(result.current, storage),
+      receipt: {
+        cueId: request.cueId,
+        confirmationNumber,
+        committedVersion: result.current.order.version,
+      },
     },
   };
 }
