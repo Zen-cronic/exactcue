@@ -380,7 +380,7 @@ export default function App() {
           <div className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</div>
           <header className="masthead">
             <a className="brandlock" href="#top" aria-label="ExactCue home"><span className="brandmark" aria-hidden="true"><i /><i /></span><span><strong>ExactCue</strong><small>The exact action. Your cue.</small></span></a>
-            <div className="masthead-center"><span>BLIND-FIRST ACTION CUSTODY</span></div>
+            <div className="masthead-center"><span>CURRENT-STATE ACTION CUSTODY</span></div>
             <div className={`connection ${supported ? "live" : "manual"}`}><span aria-hidden="true" />{supported ? "WebMCP live" : "Manual controls"}</div>
           </header>
 
