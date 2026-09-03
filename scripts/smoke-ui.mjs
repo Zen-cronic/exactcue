@@ -29,6 +29,18 @@ async function auditAccessibility(page, state) {
   return { state, violations: 0, passes: results.passes.length };
 }
 
+async function assertNoHorizontalOverflow(page, state) {
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    scroll: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+  }));
+  if (dimensions.scroll > dimensions.viewport) {
+    throw new Error(
+      `${state} overflowed horizontally (${dimensions.scroll}px content in ${dimensions.viewport}px viewport).`,
+    );
+  }
+}
+
 async function waitForTool(page, name) {
   await page.waitForFunction(async (toolName) => {
     const tools = await document.modelContext?.getTools();
@@ -67,7 +79,7 @@ async function driveAgentToReview(page) {
     throw new Error("go_to_next_step remained registered at the authoritative review boundary.");
   }
   const bypassState = await page.$eval(".flow", (element) => element.textContent ?? "");
-  if (!bypassState.includes("Hear it. Confirm it. Then commit.") || bypassState.includes("Refill complete")) {
+  if (!bypassState.includes("Hear the exact order") || bypassState.includes("Refill confirmed")) {
     throw new Error("The review state incorrectly displayed authoritative completion.");
   }
   process.stdout.write("Review navigation capability retired before authoritative completion.\n");
@@ -108,6 +120,14 @@ try {
   await stalePage.goto(baseURL, { waitUntil: "domcontentloaded" });
   await waitUntilReady(stalePage);
   accessibility.push(await auditAccessibility(stalePage, "initial"));
+  await stalePage.screenshot({ path: `${outputDirectory}/initial-desktop.png`, fullPage: true });
+  await stalePage.setViewport({ width: 350, height: 900, deviceScaleFactor: 1 });
+  await assertNoHorizontalOverflow(stalePage, "initial-350");
+  accessibility.push(await auditAccessibility(stalePage, "initial-350"));
+  await stalePage.screenshot({ path: `${outputDirectory}/initial-350.png`, fullPage: true });
+  await stalePage.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
+  process.stdout.write("Desktop and 350px initial states captured without horizontal overflow.\n");
+
   await driveAgentToReview(stalePage);
   await waitForTool(stalePage, "submit_refill");
   const webMcp = await stalePage.evaluate(async () => {
@@ -145,7 +165,26 @@ try {
   }
   process.stdout.write("Competing session committed against the shared proof server.\n");
 
-  const staleResult = await executeTool(stalePage, "submit_refill", { confirmed: true });
+  await stalePage.setRequestInterception(true);
+  let releaseSubmit;
+  const heldSubmit = new Promise((resolve) => {
+    releaseSubmit = resolve;
+  });
+  const holdSubmit = (request) => {
+    if (request.method() === "POST" && request.url().startsWith(orderURL)) releaseSubmit(request);
+    else void request.continue();
+  };
+  stalePage.on("request", holdSubmit);
+  const staleSubmission = executeTool(stalePage, "submit_refill", { confirmed: true });
+  const interceptedSubmit = await heldSubmit;
+  await stalePage.waitForSelector(".hero-submitting");
+  accessibility.push(await auditAccessibility(stalePage, "submitting"));
+  await stalePage.screenshot({ path: `${outputDirectory}/submitting.png`, fullPage: true });
+  process.stdout.write("In-flight current-record check captured while its POST was pending.\n");
+  await interceptedSubmit.continue();
+  const staleResult = await staleSubmission;
+  stalePage.off("request", holdSubmit);
+  await stalePage.setRequestInterception(false);
   if (!staleResult.includes("stale") || !staleResult.includes("No write")) {
     throw new Error(`Agent did not receive the stale no-write result: ${staleResult}`);
   }
@@ -177,7 +216,7 @@ try {
   await waitUntilReady(stalePage);
   const freshSessionId = new URL(stalePage.url()).searchParams.get("session");
   const freshText = await stalePage.$eval(".flow", (element) => element.textContent ?? "");
-  if (!freshSessionId || !freshText.includes("Which prescriptions should we refill?")) {
+  if (!freshSessionId || !freshText.includes("Choose refills")) {
     throw new Error("Fresh synthetic demo did not open an isolated initial record.");
   }
   accessibility.push(await auditAccessibility(stalePage, "fresh-session"));
@@ -196,7 +235,7 @@ try {
   await stalePage.click(".submit");
   await stalePage.waitForSelector(".done");
   const manualConfirmation = await stalePage.$eval(".done", (element) => element.textContent ?? "");
-  if (!manualConfirmation.includes("Confirmation RX-")) {
+  if (!manualConfirmation.includes("Confirmation") || !manualConfirmation.includes("RX-")) {
     throw new Error(`Manual fallback did not receive an authoritative receipt: ${manualConfirmation}`);
   }
   process.stdout.write("Manual confirmation path committed with an authoritative receipt.\n");
@@ -210,7 +249,15 @@ try {
       proof: "WebMCP-executed refill → competing commit → agent stale 409 → WebMCP recovery",
       webMcp,
       accessibility,
-      screenshots: ["review.png", "stale-conflict.png", "recovered.png", "fresh-session.png"],
+      screenshots: [
+        "initial-desktop.png",
+        "initial-350.png",
+        "review.png",
+        "submitting.png",
+        "stale-conflict.png",
+        "recovered.png",
+        "fresh-session.png",
+      ],
     }, null, 2)}\n`,
   );
 } finally {
