@@ -4,8 +4,9 @@
 
 ExactCue is a WebMCP reference implementation for a consequential browser-agent boundary: the
 page exposes the actions valid _right now_, binds read-back to the exact current proposal, and
-commits only while the authoritative record still matches. A synthetic prescription refill is the
-proof case, not the product category.
+commits only while the authoritative record still matches. The interface makes that custody
+visible as one animated Exact Cue moving from intent to review, current-record check, and receipt.
+A synthetic prescription refill is the proof case, not a claim of clinical deployment.
 
 > Meet Marcus, the synthetic demo user. He's blind. Today, refilling his prescriptions means
 > fighting a form built for a mouse. With ExactCue he says, _"refill my cholesterol and blood-pressure meds for pickup at
@@ -26,8 +27,8 @@ can't visually catch it. WebMCP changes the guarantee:
 - The tools are **scoped to the current step** (via `AbortController`): on the _prescriptions_
   step the agent can `set_prescription`; only on _review_ can it `submit_refill`. The page keeps
   the agent on-rails.
-- The committing action is reached only after a **spoken read-back plus explicit confirmation
-  attestation** bound to that exact local review, and the authoritative commit runs **server-side
+- The committing action is reached only after an **on-demand spoken or screen-reader read-back
+  plus explicit confirmation** bound to an `ExactCueSnapshot`, and the authoritative commit runs **server-side
   with an ETag compare-and-swap** — so if the record
   changed underneath (a refill already processed, a dose updated), the submit **fails closed**
   with an actionable message instead of doing the wrong thing quietly.
@@ -52,20 +53,23 @@ fail-closed on camera — rather than a wide set of shallow fakes.
   agent; the tool set changes with task state, visible live in the app and the Model Context Tool
   Inspector; the server-side ETag CAS is genuine, not simulated.
 - **Execution** — a complete, coherent product: a fully usable human UI, plus empty /
-  unsupported-browser / ineligible-prescription / stale-record / success states.
+  unsupported-browser / ineligible-prescription / reduced-motion / stale-record / success states.
 - **Potential Impact** — a specific audience and costly failure mode: a non-sighted user cannot
   visually catch a wrong or stale transactional action. The demo is synthetic and claims a
   reusable safety pattern, not clinical deployment or completed user research.
-- **Creativity & Ambition** — accessibility as an **agent cockpit**, not an accessibility _audit_
-  tool; the inverse of the crowded "confirmation-gated governance" pattern.
+- **Creativity & Ambition** — accessibility as a **shared action-custody journey**, not an
+  accessibility audit. The same cue drives motion, speech, UI, WebMCP output, and the server receipt.
 
 ## How WebMCP is implemented
 
 - `src/webmcp/modelContext.ts` — typings + helpers for the experimental imperative API.
 - `src/domain/refill.ts` — the pure, tested state machine (steps, eligibility, validation, submit).
+- `src/domain/exactCue.ts` — the reviewed cue, spoken transcript, record binding, and safe public
+  projection used by both people and agents.
 - `src/store.ts` — one shared order that both the React UI and the tool handlers read/mutate, so
   the page and the agent always look at the same uncommitted review state.
-- `src/webmcp/exactCueTools.ts` — the typed WebMCP adapter. Always-on tools describe and recover;
+- `src/webmcp/exactCueTools.ts` — the typed WebMCP adapter. Every execution returns readable MCP
+  `content` plus machine-readable `structuredContent`; always-on tools describe and recover;
   navigation and action tools register and retire with the current step. At review,
   `go_to_next_step` disappears and only the read-back + explicit-confirmation submit path can
   reach authoritative completion.
@@ -77,8 +81,8 @@ fail-closed on camera — rather than a wide set of shallow fakes.
 - `src/api/demoSession.ts` — bounded, path-safe synthetic run IDs. The run ID is visible in the
   URL and proof bar; it is not a credential or an authorization boundary.
 - `netlify/functions/order.ts` — web-standard `GET /api/order` and `POST /api/order` Function.
-- `src/App.tsx` — the human UI and a live panel mirroring `getTools()` so you can watch the tool
-  set change per step.
+- `src/App.tsx` — the blind-first intent → cue → check → receipt journey, user-triggered speech,
+  Motion transitions, compact proof disclosure, and the built-in stale-tab rehearsal.
 
 ## Run it
 
@@ -92,6 +96,10 @@ pnpm smoke:ui   # WebMCP-executed refill + stale-write/recovery proof
 pnpm capture:demo # real hosted conflict-to-recovery insert
 pnpm scan:secrets
 ```
+
+The deterministic receipt currently covers **23 unit tests and nine axe-audited UI states** with
+zero detected violations, including 350px and reduced-motion captures. See
+[`docs/safety-contract.md`](docs/safety-contract.md) for the boundary-by-boundary matrix.
 
 The capture command drives the public deployment through native WebMCP and writes its MP4 outside
 the product repository at `../submission/exactcue/video/exactcue-proof.mp4`. Judge-facing demo and
@@ -117,7 +125,13 @@ Every order response includes `X-ExactCue-Request-Id`, `X-ExactCue-Storage`, and
 receipts. The hosted Function logs only that request ID, method, status, duration, and storage mode;
 it deliberately excludes URL/session IDs, ETags, request/response bodies, and patient/order fields.
 
-Live judge preview: <https://exactcue-webmcp.netlify.app>
+Live product: <https://exactcue-webmcp.netlify.app/>
+
+Reproducible stale-record journey: <https://exactcue-webmcp.netlify.app/?judge=1>
+
+In judge mode, build and review the cue, then choose **Rehearse stale tab**. ExactCue sends two
+real conditional requests: the competing request commits first, the original cue receives 409 with
+`noWrite: true`, and recovery reveals the current authoritative receipt.
 
 Local Vite dev/preview serves the **same HTTP handler and service logic** over an in-memory adapter,
 visibly labeled `LOCAL PROOF SERVER`. That makes offline tests and deterministic conflict rehearsal
