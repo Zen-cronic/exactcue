@@ -11,3 +11,9 @@ BUILD_CHECKPOINT.md
 .env.*
 !.env.template
 .DS_Store
+
+.claude
+.codex
+.agents
+
+film
