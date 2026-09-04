@@ -65,6 +65,7 @@ function localOrderApi(): Plugin {
 export default defineConfig({
   plugins: [react(), localOrderApi()],
   server: {
+    // Distinctive fixed port to avoid colliding with other local Vite apps (default 5173).
     port: 5820,
     strictPort: true,
     headers: {
