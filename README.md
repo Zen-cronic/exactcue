@@ -81,7 +81,7 @@ fail-closed on camera — rather than a wide set of shallow fakes.
 - `src/api/demoSession.ts` — bounded, path-safe synthetic run IDs. The run ID is visible in the
   URL and proof bar; it is not a credential or an authorization boundary.
 - `netlify/functions/order.ts` — web-standard `GET /api/order` and `POST /api/order` Function.
-- `src/App.tsx` — the blind-first intent → cue → check → receipt journey, user-triggered speech,
+- `src/App.tsx` — the accessibility-led intent → cue → check → receipt journey, user-triggered speech,
   Motion transitions, compact proof disclosure, and the built-in stale-tab rehearsal.
 
 ## Run it
@@ -98,8 +98,9 @@ pnpm scan:secrets
 ```
 
 The deterministic receipt currently covers **23 unit tests and nine axe-audited UI states** with
-zero detected violations, including 350px and reduced-motion captures. See
-[`docs/safety-contract.md`](docs/safety-contract.md) for the boundary-by-boundary matrix.
+zero detected violations, including 350px and reduced-motion captures. The test suite covers the
+domain state machine, cue binding, HTTP contract, conditional commit, stale requests, and replay
+rejection.
 
 The capture command drives the public deployment through native WebMCP and writes its MP4 outside
 the product repository at `../submission/exactcue/video/exactcue-proof.mp4`. Judge-facing demo and
@@ -107,8 +108,9 @@ upload materials live alongside that artifact and are deliberately not tracked h
 
 To see the agent drive it, open the app in **Chrome 149+** with
 `chrome://flags/#enable-webmcp-testing` enabled (plus the _Model Context Tool Inspector_
-extension), or the **ChatGPT desktop** in-app browser. Without WebMCP the page runs in fully
-usable manual mode and says so.
+extension). This Chrome path has been manually verified. Without WebMCP the page runs in fully
+usable manual mode and says so; other compatible WebMCP clients can use the same page-declared
+tool surface.
 
 ## Deploy (Netlify)
 
